@@ -1,0 +1,73 @@
+# Contributing to {{ project_name }}
+
+Thanks for contributing. `{{ project_name }}` is owned by **{{ owning_team }}** and
+follows the Ramboll Developer Platform golden-path standards. These standards are
+**non-negotiable** — they are what make the service maintainable and green.
+
+## Branching model
+
+Three long-lived branches:
+
+- **`main`** — production. Protected: PR + review + green checks required.
+- **`dev`** — integration. **PRs target this branch.**
+- **`staging`** — pre-production validation.
+
+All work happens on short-lived branches cut from `dev`, named **exactly** one of:
+
+| Prefix | Use | Example |
+| --- | --- | --- |
+| `feature/` | New behaviour | `feature/PROJ-142-health-endpoint` |
+| `bug/` | Defect fix | `bug/PROJ-188-slug-empty-input` |
+| `hotfix/` | Urgent production fix | `hotfix/PROJ-201-uvicorn-crash` |
+
+The pattern is `<type>/<ticket>-<slug>`. Anything that does not match is
+**rejected by the branch-name check** in CI — rename your branch.
+
+## Commits
+
+Use [**Conventional Commits**](https://www.conventionalcommits.org/):
+
+```
+feat: add /health endpoint
+fix: handle empty input in slugify
+docs: expand the runbook recovery section
+test: add property test for word_count invariance
+```
+
+## Pull requests
+
+1. Open the PR **into `dev`**.
+2. A review is required, and **CODEOWNERS** (`@ramboll/{{ owning_team }}`) must approve.
+3. The **Build / Test / Validate** checks must all be **green** before merge.
+4. Fill in the PR template checklist.
+
+## Quality gates (what CI enforces)
+
+- **Property tests:** every new public, pure function ships with **at least one
+  property test** (Hypothesis). Treat a shrinking counterexample as a real bug.
+- **Clean code:** small, single-responsibility, fully-typed functions with
+  docstrings. Must pass `ruff check`, `black --check .`, and `mypy`.
+- **Docs:** `mkdocs build --strict` must pass; update `docs/` when behaviour changes.
+
+Run them locally before pushing:
+
+```bash
+ruff check .
+black --check .
+mypy
+pytest
+mkdocs build --strict
+```
+
+## CI governance
+
+**CI must always reference the reusable workflows — no ad-hoc pipelines.** Do not
+copy-paste pipeline steps into this repository. If the pipeline needs to change,
+the change belongs in the central reusable workflow so every service benefits.
+
+## The embedded agent skills
+
+The full standards live as agent skills under `.claude/skills/`
+(`property-based-testing`, `python-clean-code`, `git-ci-governance`). Point your
+coding agent at them via `CLAUDE.md` / `AGENTS.md` and it will follow these rules
+automatically.

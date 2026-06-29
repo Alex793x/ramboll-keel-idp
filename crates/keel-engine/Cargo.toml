@@ -1,0 +1,18 @@
+[package]
+name = "keel-engine"
+description = "The 8-step idempotent initialization workflow that turns an InitRequest into a repo."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+keel-core = { workspace = true }
+keel-blueprint = { workspace = true }
+keel-github = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }

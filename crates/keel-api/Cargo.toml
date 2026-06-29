@@ -1,0 +1,27 @@
+[package]
+name = "keel-api"
+description = "axum HTTP API that fronts the Keel engine and serves mocked departments/users."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "keel-api"
+path = "src/main.rs"
+
+[dependencies]
+keel-core = { workspace = true }
+keel-blueprint = { workspace = true }
+keel-github = { workspace = true }
+keel-engine = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tower = "0.5"

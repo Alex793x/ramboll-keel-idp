@@ -1,0 +1,72 @@
+name: reusable-validate
+
+# Central, reusable VALIDATE workflow for the Ramboll Developer Platform (Keel).
+# Every generated repo's `validate.yml` calls this by path:
+#   uses: Ramboll-RDP/keel/.github/workflows/reusable-validate.yml@v1
+# Enforces the standards-as-code gates: lint, format, types, branch-name
+# governance, and a strict docs build.
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: "Python version to validate against."
+        required: false
+        type: string
+        default: "3.12"
+
+jobs:
+  validate:
+    name: Lint, types, governance & docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Lint (ruff)
+        shell: bash
+        run: ruff check .
+
+      - name: Format check (black)
+        shell: bash
+        run: black --check .
+
+      - name: Type check (mypy)
+        shell: bash
+        run: mypy .
+
+      - name: Branch-name governance (pull requests only)
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          # Inline governance gate (SPEC §8 #3): the PR head ref must be a
+          # working branch (feature/ | bug/ | hotfix/) or a protected branch
+          # (main | dev | staging). Mirrors .github/scripts/check_branch_name.py.
+          if [[ "${HEAD_REF}" =~ ^(feature|bug|hotfix)/.+$ ]] \
+             || [[ "${HEAD_REF}" == "main" ]] \
+             || [[ "${HEAD_REF}" == "dev" ]] \
+             || [[ "${HEAD_REF}" == "staging" ]]; then
+            echo "Branch name '${HEAD_REF}' is valid."
+          else
+            echo "::error::Branch name '${HEAD_REF}' violates the Keel git governance policy."
+            echo "Working branches must be named feature/<ticket>-<slug>, bug/<...> or hotfix/<...>."
+            echo "Protected branches allowed: main, dev, staging."
+            exit 1
+          fi
+
+      - name: Docs build (mkdocs --strict, if configured)
+        shell: bash
+        run: |
+          if [ -f mkdocs.yml ]; then
+            python -m pip install mkdocs mkdocs-material
+            mkdocs build --strict
+          else
+            echo "No mkdocs.yml — skipping docs build."
+          fi

@@ -1,0 +1,14 @@
+# Test — runs pytest (incl. Hypothesis property tests) via the central reusable
+# workflow. Do NOT inline pipeline logic here (see .claude/skills/git-ci-governance).
+name: test
+
+on:
+  push:
+    branches: [main, dev, staging]
+  pull_request:
+
+jobs:
+  test:
+    uses: Ramboll-RDP/keel/.github/workflows/reusable-test.yml@v1
+    with:
+      python-version: "3.12"

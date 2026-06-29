@@ -1,0 +1,75 @@
+# Architecture — {{ project_name }}
+
+> {{ description }}
+>
+> A Ramboll **{{ service_kind }}** service, owned by **{{ owning_team }}**.
+> Generated from the Keel `python-service` golden-path blueprint.
+
+## 1. Context (C4 level 1)
+
+`{{ project_name }}` is one service in the Ramboll estate. It exposes a small,
+well-defined surface and keeps its domain logic pure and independently testable.
+
+```
+        ┌────────────┐        {% if service_kind == 'rest-api' %}HTTP{% else %}trigger{% endif %}        ┌──────────────────────┐
+        │  Caller /   │ ───────────────────▶ │   {{ project_name }}   │
+        │  Scheduler  │                      │  ({{ service_kind }} service)   │
+        └────────────┘                      └──────────────────────┘
+```
+
+## 2. Components (C4 level 2/3)
+
+| Component | Responsibility |
+| --- | --- |
+| `src/{{ package_name }}/core.py` | Pure, fully-typed domain logic. No I/O, no mutation. The heart of the service and the home of the property tests. |
+{% if service_kind == 'rest-api' %}| `src/{{ package_name }}/api.py` | FastAPI app. A thin HTTP adapter (`GET /health`) over the core. Owns transport, not business logic. |
+{% else %}| `src/{{ package_name }}/` entrypoint | Worker entrypoint (no HTTP). Wires triggers to the pure core. |
+{% endif %}| `tests/test_smoke.py` | Import + concrete-example behaviour. |
+| `tests/test_properties.py` | Hypothesis property/invariant tests over `core.py`. |
+
+**Design rule:** push logic into pure functions in `core.py`; keep adapters thin.
+Thin adapters + pure cores are what make this repo *green from birth*.
+
+## 3. Data flow
+
+{% if service_kind == 'rest-api' %}
+```
+client ──HTTP──▶ api.py ──call──▶ core.py ──return──▶ api.py ──JSON──▶ client
+```
+The HTTP layer never holds business rules; it parses, delegates, and serialises.
+{% else %}
+```
+trigger ──invoke──▶ entrypoint ──call──▶ core.py ──return──▶ entrypoint ──side-effects──▶ outside world
+```
+The entrypoint owns side-effects; `core.py` stays pure.
+{% endif %}
+
+## 4. Three-plane lineage (born from Keel)
+
+This repository did not appear by hand. It was rendered by **Keel**, the
+project-initialization layer of the Ramboll Developer Platform, which spans three
+planes:
+
+1. **Experience plane** — the Keel Hub: an engineer signed in, chose the
+   `python-service` blueprint, and submitted a short form.
+2. **Orchestration plane** — the Keel engine: validated the form against the
+   blueprint manifest, rendered this `template/` tree, created the git repo with
+   `main`/`dev`/`staging`, and recorded the project in the catalog + audit log.
+3. **Integration plane** — git and the **reusable** GitHub Actions referenced by
+   `.github/workflows/{build,test,validate}.yml`. Updating the central reusable
+   workflow updates this service's pipeline automatically ("fix once, benefit
+   everyone").
+
+## 5. Quality model
+
+- **Green from birth** — the seeded `core.py` + tests pass on commit 1.
+- **Properties over examples** — invariants are tested with Hypothesis.
+- **Clean code** — small, typed functions; `ruff` + `black` + `mypy` clean.
+- **Governed git/CI** — strict branch model and reusable pipelines.
+
+These standards are embedded as agent skills under `.claude/skills/`.
+
+## 6. Decisions
+
+Architecture decisions are recorded as ADRs under `docs/adr/`. Start with
+[ADR-0001](docs/adr/0001-record-architecture-decisions.md).

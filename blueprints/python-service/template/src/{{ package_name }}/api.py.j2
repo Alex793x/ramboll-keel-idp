@@ -1,0 +1,34 @@
+"""HTTP surface for {{ project_name }} (a ``rest-api`` service).
+
+A minimal FastAPI application exposing a health endpoint. Run it with::
+
+    uvicorn {{ package_name }}.api:app --reload
+
+FastAPI is an optional dependency — install it with the ``api`` extra::
+
+    pip install -e ".[api]"
+
+Owned by {{ owning_team }}.
+"""
+
+from __future__ import annotations
+
+from fastapi import FastAPI
+
+from {{ package_name }} import __version__
+
+app = FastAPI(
+    title="{{ project_name }}",
+    description="{{ description }}",
+    version=__version__,
+)
+
+
+@app.get("/health", tags=["meta"])
+def health() -> dict[str, str]:
+    """Liveness/readiness probe.
+
+    Returns:
+        A small JSON object reporting service status and version.
+    """
+    return {"status": "ok", "service": "{{ project_name }}", "version": __version__}

@@ -2,14 +2,22 @@
 
 > **Bright ideas. Sustainable change.**
 >
-> Keel is the **project-initialization layer** of the Ramboll Developer Platform (RDP):
-> a self-service Hub where a Ramboll engineer signs in, picks a blueprint, answers a short form,
-> and receives a fully bootstrapped, standards-compliant repository — green from the first commit.
+> **Keel** is the project-initialization layer of the Ramboll Developer Platform (RDP).
+> A self-service **Hub** where an engineer signs in, **selects a department and the owning users**,
+> picks the Python blueprint, and gets a **real, standards-compliant GitHub repository** — green
+> from its first commit.
 
-This repository contains the MVP. See:
+**v2 architecture:** a Rust Cargo-workspace **engine** (`crates/`) behind a **TanStack Start** hub
+(`hub/`), creating repositories via the `gh` CLI, from the Python golden-path **blueprint**
+(`blueprints/python-service/`) wired to **reusable GitHub Actions** (`.github/`).
 
-- **[SPEC.md](SPEC.md)** — the master specification and build contract.
-- **[Tracker.md](Tracker.md)** — execution tracker and area ownership.
-- **`keel_whitepaper.pdf`** — "Laying the Keel", the source vision.
+- **[SPEC.md](SPEC.md)** — master specification & frozen crate/API contracts.
+- **[Tracker.md](Tracker.md)** — execution tracker & area ownership.
+- **`keel_whitepaper.pdf`** — the source vision.
 
-> 🚧 _Foundation in progress — this README is expanded by the platform-docs area._
+```bash
+cargo test --workspace        # Rust engine: TDD + proptest
+cd hub && npm test            # Hub: Vitest + fast-check
+```
+
+> 🚧 _v2 build in progress — this README is expanded by the platform-docs area._

@@ -1,0 +1,105 @@
+name: ci
+
+# Keel's OWN continuous integration (this repo — the platform, not a generated
+# repo). Three jobs:
+#   1. lint+typecheck the `keel` engine and `hub` experience plane,
+#   2. run the engine's own unit + property tests,
+#   3. "blueprint is software" (whitepaper §5.4): render the python-service
+#      blueprint into a throwaway repo and assert the generated repo is green.
+
+on:
+  push:
+    branches: [main, dev, staging]
+  pull_request: {}
+
+permissions:
+  contents: read
+
+jobs:
+  lint-typecheck:
+    name: Lint & typecheck (keel + hub)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: Lint (ruff)
+        run: ruff check keel hub
+
+      - name: Format check (black)
+        run: black --check keel hub
+
+      - name: Type check (mypy)
+        run: mypy keel hub
+
+  test:
+    name: Engine tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: Run engine tests
+        run: pytest keel/tests -q
+
+  blueprint-is-software:
+    name: Blueprint is software (render + green)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: Render the python-service blueprint via the engine
+        shell: bash
+        run: |
+          # Use the engine's factory to render the golden-path blueprint into a
+          # throwaway output dir, then assert the generated repo is green.
+          # This realises whitepaper §5.4: "blueprints are software, tested in CI".
+          rm -rf _ci_generated
+          python -c "
+          from keel.factory import Keel
+
+          keel = Keel(
+              blueprints_dir='blueprints',
+              output_dir='_ci_generated',
+              store_path='_ci_keel.db',
+          )
+          result = keel.initialize(
+              blueprint='python-service',
+              params={
+                  'project_name': 'ci-smoke-service',
+                  'owning_team': 'platform',
+                  'service_kind': 'rest-api',
+                  'description': 'CI smoke render of the python-service blueprint.',
+                  'author': 'keel-ci',
+              },
+          )
+          print('Rendered repo at:', result['repo_path'])
+          # Expose the path to subsequent steps.
+          import os
+          with open(os.environ['GITHUB_ENV'], 'a') as fh:
+              fh.write(f\"GENERATED_REPO={result['repo_path']}\n\")
+          "
+
+      - name: Install & test the generated repo (must be green)
+        shell: bash
+        working-directory: ${{ env.GENERATED_REPO }}
+        run: |
+          python -m pip install ".[dev]" || python -m pip install .
+          python -m pip install pytest hypothesis
+          pytest -q

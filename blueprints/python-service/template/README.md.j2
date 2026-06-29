@@ -1,0 +1,91 @@
+# {{ project_name }}
+
+> {{ description }}
+
+A Ramboll **{{ service_kind }}** service, owned by **{{ owning_team }}**.
+Generated from the Ramboll Developer Platform (Keel) `python-service`
+golden-path blueprint — **green from birth**: it compiles and passes its smoke
+and property tests on the very first commit.
+
+_Bright ideas. Sustainable change._
+
+---
+
+## What is this?
+
+`{{ project_name }}` follows the Ramboll Python golden path: a small, opinionated,
+standards-compliant service with a pure, fully-typed core, property-based tests,
+a docs site, and CI that references the platform's reusable workflows. You inherit
+the standards for free — focus on the domain.
+
+## Quickstart
+
+```bash
+# 1. Set up an environment
+python -m venv .venv && source .venv/bin/activate
+
+# 2. Install (dev toolchain){% if service_kind == 'rest-api' %} + the HTTP extra{% endif %}
+pip install -e ".[dev]"
+{% if service_kind == 'rest-api' %}pip install -e ".[api]"
+{% endif %}
+# 3. Run the tests (smoke + Hypothesis property tests)
+pytest
+{% if service_kind == 'rest-api' %}
+# 4. Run the service
+uvicorn {{ package_name }}.api:app --reload
+curl localhost:8000/health
+{% endif %}```
+
+## Documentation
+
+Full docs are built with **MkDocs (Material)** and live in `docs/`:
+
+```bash
+mkdocs serve     # live docs at http://127.0.0.1:8000
+```
+
+Start with `docs/index.md`. Architecture is in `architecture.md`; operations in
+`docs/runbook.md`; decisions in `docs/adr/`.
+
+## Branching model
+
+This repository uses the platform's three long-lived branches:
+
+| Branch | Purpose |
+| --- | --- |
+| `main` | Production. Protected — PR + review + green checks required. |
+| `dev` | Integration. PRs target this branch. |
+| `staging` | Pre-production validation. |
+
+Work happens on short-lived branches off `dev`, named **exactly**:
+
+- `feature/<ticket>-<slug>` — new behaviour
+- `bug/<ticket>-<slug>` — defect fix
+- `hotfix/<ticket>-<slug>` — urgent production fix
+
+Anything else is rejected by the branch-name check in CI. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## CI
+
+Three checks run on every push and PR — **Build**, **Test**, **Validate** — each
+referencing the platform's **reusable** GitHub Actions workflows. Updating the
+central workflow updates this service automatically. Never inline pipeline logic.
+
+## Standards as code — the embedded AI skills
+
+The engineering standards are embedded as AI agent skills under `.claude/skills/`,
+so any coding agent (Claude Code, Cursor, Copilot, …) adopts them automatically:
+
+- [`property-based-testing`](.claude/skills/property-based-testing/SKILL.md) —
+  every pure function ships with Hypothesis property tests.
+- [`python-clean-code`](.claude/skills/python-clean-code/SKILL.md) — small, typed,
+  lint/format/type-clean functions.
+- [`git-ci-governance`](.claude/skills/git-ci-governance/SKILL.md) — the branch
+  model, strict naming, and reusable CI.
+
+See [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md).
+
+## License
+
+Ramboll Internal — see [`LICENSE`](LICENSE).

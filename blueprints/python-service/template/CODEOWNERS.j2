@@ -1,0 +1,10 @@
+# CODEOWNERS — required reviewers for {{ project_name }}.
+# Branch protection on `main` requires CODEOWNERS approval (see CONTRIBUTING.md).
+# Syntax: https://docs.github.com/articles/about-code-owners
+
+# Default owner for everything in the repository.
+* @ramboll/{{ owning_team }}
+
+# Keep CI governance and the embedded standards owned by the team explicitly.
+/.github/        @ramboll/{{ owning_team }}
+/.claude/        @ramboll/{{ owning_team }}

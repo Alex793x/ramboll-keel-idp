@@ -1,0 +1,51 @@
+name: reusable-build
+
+# Central, reusable BUILD workflow for the Ramboll Developer Platform (Keel).
+# Every generated repo's `build.yml` calls this by path:
+#   uses: Ramboll-RDP/keel/.github/workflows/reusable-build.yml@v1
+# Fix the build once here and every blueprint benefits — no copy-pasted pipelines.
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: "Python version to build against."
+        required: false
+        type: string
+        default: "3.12"
+
+jobs:
+  build:
+    name: Build & import check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install package (generic)
+        shell: bash
+        run: |
+          if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f setup.cfg ]; then
+            python -m pip install .
+          else
+            echo "No packaging metadata — skipping install step."
+          fi
+
+      - name: Compile all sources (import/syntax check)
+        shell: bash
+        run: python -m compileall -q .
+
+      - name: Build distribution (if `build` is available)
+        shell: bash
+        run: |
+          if [ -f pyproject.toml ] || [ -f setup.py ]; then
+            python -m pip install build
+            python -m build
+          else
+            echo "No packaging metadata — skipping `python -m build`."
+          fi

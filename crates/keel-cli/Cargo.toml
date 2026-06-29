@@ -1,0 +1,20 @@
+[package]
+name = "keel-cli"
+description = "Headless Keel CLI — the deterministic E2E driver (init a project → real GitHub repo)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "keel-cli"
+path = "src/main.rs"
+
+[dependencies]
+keel-core = { workspace = true }
+keel-engine = { workspace = true }
+keel-github = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }

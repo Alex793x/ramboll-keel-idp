@@ -1,37 +1,44 @@
-# Python
+# ── Rust ───────────────────────────────────────────────
+/target/
+**/*.rs.bk
+# Cargo.lock IS committed (this is an application workspace, not a library)
+
+# ── Node / TanStack Start hub ──────────────────────────
+node_modules/
+hub/node_modules/
+hub/dist/
+hub/.output/
+hub/.nitro/
+hub/.tanstack/
+hub/.vinxi/
+*.tsbuildinfo
+coverage/
+
+# ── Keel runtime / generated output ────────────────────
+/generated/
+keel.db
+*.sqlite3
+
+# ── MemTrace local store ───────────────────────────────
+/.memdb/
+
+# ── Python (legacy v1 + generated-repo local envs) ─────
 __pycache__/
 *.py[cod]
-*.egg-info/
-.eggs/
-build/
-dist/
 .venv/
-venv/
-env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .hypothesis/
-.coverage
-htmlcov/
+*.egg-info/
 
-# Keel runtime / generated output
-/generated/
-keel.db
-*.sqlite3
-catalog.json
-audit.log
-
-# MemTrace local store
-/.memdb/
-
-# Editors / OS
+# ── Editors / OS ───────────────────────────────────────
 .DS_Store
 .idea/
 .vscode/
 *.swp
 
-# Secrets
+# ── Secrets ────────────────────────────────────────────
 .env
 .env.*
 !.env.example

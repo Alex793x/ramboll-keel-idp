@@ -1,0 +1,59 @@
+{
+  "_comment": "Canonical mocked departments + users for the Keel MVP. Single source of truth: keel-api reads this (include_str!); the Hub gets it at runtime via GET /api/departments and /api/departments/:id/users. Ramboll market divisions are used as departments. github_login values are mock except platform-engineering's 'Alex793x', which is the real test account so the E2E CODEOWNERS references a valid owner.",
+  "departments": [
+    {
+      "id": "buildings",
+      "name": "Buildings",
+      "team_slug": "buildings",
+      "users": [
+        { "id": "u-anya",  "name": "Anya Sørensen",   "email": "anya.sorensen@ramboll.com",   "github_login": "anya-ramboll" },
+        { "id": "u-mads",  "name": "Mads Jensen",      "email": "mads.jensen@ramboll.com",     "github_login": "mads-ramboll" }
+      ]
+    },
+    {
+      "id": "transport",
+      "name": "Transport",
+      "team_slug": "transport",
+      "users": [
+        { "id": "u-priya", "name": "Priya Nair",       "email": "priya.nair@ramboll.com",      "github_login": "priya-ramboll" },
+        { "id": "u-lars",  "name": "Lars Holm",        "email": "lars.holm@ramboll.com",       "github_login": "lars-ramboll" }
+      ]
+    },
+    {
+      "id": "water",
+      "name": "Water",
+      "team_slug": "water",
+      "users": [
+        { "id": "u-sofia", "name": "Sofia Lindqvist",  "email": "sofia.lindqvist@ramboll.com", "github_login": "sofia-ramboll" },
+        { "id": "u-tomas", "name": "Tomas Berg",       "email": "tomas.berg@ramboll.com",      "github_login": "tomas-ramboll" }
+      ]
+    },
+    {
+      "id": "energy",
+      "name": "Energy",
+      "team_slug": "energy",
+      "users": [
+        { "id": "u-nina",  "name": "Nina Patel",       "email": "nina.patel@ramboll.com",      "github_login": "nina-ramboll" },
+        { "id": "u-erik",  "name": "Erik Dahl",        "email": "erik.dahl@ramboll.com",       "github_login": "erik-ramboll" }
+      ]
+    },
+    {
+      "id": "environment-health",
+      "name": "Environment & Health",
+      "team_slug": "environment-health",
+      "users": [
+        { "id": "u-maya",  "name": "Maya Okonkwo",     "email": "maya.okonkwo@ramboll.com",    "github_login": "maya-ramboll" },
+        { "id": "u-jonas", "name": "Jonas Krause",     "email": "jonas.krause@ramboll.com",    "github_login": "jonas-ramboll" }
+      ]
+    },
+    {
+      "id": "platform-engineering",
+      "name": "Platform Engineering",
+      "team_slug": "platform-engineering",
+      "users": [
+        { "id": "u-alex",  "name": "Alex Holmberg",    "email": "axth@syncable.dev",           "github_login": "Alex793x" },
+        { "id": "u-bo",    "name": "Bo Andersson",     "email": "bo.andersson@ramboll.com",    "github_login": "bo-ramboll" }
+      ]
+    }
+  ]
+}
