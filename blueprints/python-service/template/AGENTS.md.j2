@@ -2,7 +2,8 @@
 
 This file orients **any** coding agent (Cursor, GitHub Copilot, Codex, Continue,
 and others) working in `{{ project_name }}`, a Ramboll **{{ service_kind }}**
-service owned by **{{ owning_team }}**. {{ description }}
+service owned by the **{{ department.name }}** department
+({% for u in users %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}). {{ description }}
 
 It is the vendor-neutral twin of `CLAUDE.md`; both point at the same binding
 standards under `.claude/skills/`.

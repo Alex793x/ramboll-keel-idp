@@ -19,6 +19,9 @@ coverage/
 keel.db
 *.sqlite3
 
+# ── Keel runtime catalog/audit (written by the engine at run time) ─
+/.keel/
+
 # ── MemTrace local store ───────────────────────────────
 /.memdb/
 

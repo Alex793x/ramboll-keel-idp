@@ -1,0 +1,8 @@
+# Verbatim file: GitHub Actions ${{ }} expressions MUST survive untouched (no .j2 suffix).
+name: ci
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "ref is ${{ github.ref }}"

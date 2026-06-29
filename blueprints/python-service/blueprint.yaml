@@ -1,14 +1,17 @@
-apiVersion: keel/v1
+apiVersion: keel/v2
 kind: Blueprint
 
 metadata:
   name: python-service
   title: Python Service
   description: REST or worker service — the Ramboll Python golden path.
-  version: "1.0.0"
+  version: "2.0.0"
   owner: platform-engineering
   tags: [python, service, golden-path]
 
+# Form parameters only. Ownership (department + selected users) is NOT collected
+# here — it comes from the Hub's department/users selection step and is injected
+# into the render context as `department` and `users` (see SPEC §3.2).
 parameters:
   - id: project_name
     title: Project name
@@ -18,13 +21,6 @@ parameters:
     help: >-
       Lowercase repository / package name. Start with a letter; use letters,
       digits and hyphens only (3–41 chars). Example: invoicing-api.
-  - id: owning_team
-    title: Owning team
-    type: string
-    required: true
-    help: >-
-      The GitHub team that owns this service (used for CODEOWNERS), e.g.
-      platform-engineering.
   - id: service_kind
     title: Service kind
     type: enum

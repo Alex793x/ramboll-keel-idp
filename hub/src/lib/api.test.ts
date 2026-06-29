@@ -1,0 +1,102 @@
+import { describe, expect, it, vi } from "vitest";
+import { ApiError, DEFAULT_API_URL, KeelApi } from "./api";
+import type { InitializePayload } from "./types";
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+describe("KeelApi", () => {
+  it("uses the default base URL when none is given", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ status: "ok" }));
+    const api = new KeelApi({ fetchImpl });
+    await api.health();
+    expect(fetchImpl).toHaveBeenCalledWith(
+      `${DEFAULT_API_URL}/api/health`,
+      expect.objectContaining({ headers: expect.any(Object) }),
+    );
+  });
+
+  it("strips a trailing slash from the base URL", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+    const api = new KeelApi({ baseUrl: "http://api.test/", fetchImpl });
+    await api.listDepartments();
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://api.test/api/departments",
+      expect.anything(),
+    );
+  });
+
+  it("GET /api/departments returns the parsed array", async () => {
+    const depts = [{ id: "buildings", name: "Buildings", team_slug: "buildings" }];
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(depts));
+    const api = new KeelApi({ baseUrl: "http://api.test", fetchImpl });
+    await expect(api.listDepartments()).resolves.toEqual(depts);
+  });
+
+  it("GET /api/departments/:id/users encodes the id", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+    const api = new KeelApi({ baseUrl: "http://api.test", fetchImpl });
+    await api.listUsers("a b/c");
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://api.test/api/departments/a%20b%2Fc/users",
+      expect.anything(),
+    );
+  });
+
+  it("POST /api/initialize sends JSON with the right method + headers + body", async () => {
+    const payload: InitializePayload = {
+      project_name: "invoicing-api",
+      blueprint: "python-service",
+      department_id: "buildings",
+      user_ids: ["u-anya"],
+      service_kind: "rest-api",
+      description: "desc",
+      author: "Anya",
+    };
+    const response = {
+      events: [],
+      outcome: {
+        project: "invoicing-api",
+        repo: {
+          owner: "Alex793x",
+          name: "keel-e2e-invoicing-api",
+          html_url: "https://github.com/Alex793x/keel-e2e-invoicing-api",
+          default_branch: "main",
+          branches: ["main", "dev", "staging"],
+        },
+        docs_path: "docs/",
+        blueprint_version: "1.0.0",
+        catalog_id: "cat-1",
+        events: [],
+      },
+    };
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(response));
+    const api = new KeelApi({ baseUrl: "http://api.test", fetchImpl });
+
+    const res = await api.initialize(payload);
+
+    expect(res).toEqual(response);
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("http://api.test/api/initialize");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toMatchObject({ "Content-Type": "application/json" });
+    expect(JSON.parse(init.body as string)).toEqual(payload);
+  });
+
+  it("throws ApiError on a non-2xx response", async () => {
+    // Fresh Response per call: a Response body can only be read once.
+    const fetchImpl = vi
+      .fn()
+      .mockImplementation(async () => new Response("boom", { status: 500 }));
+    const api = new KeelApi({ baseUrl: "http://api.test", fetchImpl });
+    await expect(api.listProjects()).rejects.toBeInstanceOf(ApiError);
+    await expect(api.listProjects()).rejects.toMatchObject({
+      status: 500,
+      body: "boom",
+    });
+  });
+});

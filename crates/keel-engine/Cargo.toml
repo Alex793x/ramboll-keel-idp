@@ -14,5 +14,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+keel-github = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }

@@ -1,11 +1,19 @@
-//! keel-cli — the headless E2E driver.
+//! keel-cli binary — the deterministic E2E driver (SPEC §3.6).
 //!
-//! Phase-0 stub. `Fleet-Api-RS` implements:
-//! `keel-cli init --project <name> --department <id> --users <id,id> --service-kind rest-api
-//!  --description "…" --author "…" [--owner Alex793x] [--dry-run]`
-//! using `keel_github::GhCliProvider` (or `FakeProvider` with `--dry-run`).
+//! ```text
+//! keel-cli init --project <name> --department <id> --users <id,id,...>
+//!               --service-kind <rest-api|worker> --description <s> --author <s>
+//!               [--owner Alex793x] [--blueprints <dir>] [--local <dir>] [--dry-run]
+//! ```
+
+use clap::Parser;
+
+use keel_cli::{dispatch, Cli};
 
 fn main() {
-    eprintln!("keel-cli — Phase 0 stub; run after Fleet-Api-RS implements the `init` command.");
-    std::process::exit(0);
+    let cli = Cli::parse();
+    if let Err(e) = dispatch(cli) {
+        eprintln!("error: {e:#}");
+        std::process::exit(1);
+    }
 }

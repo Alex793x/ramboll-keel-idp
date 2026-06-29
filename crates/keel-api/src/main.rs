@@ -1,20 +1,35 @@
-//! keel-api — axum HTTP API fronting the Keel engine.
+//! keel-api binary — wires [`keel_api::app`] to a TCP listener.
 //!
-//! Phase-0 stub: a health endpoint only. `Fleet-Api-RS` adds `/api/departments`,
-//! `/api/departments/:id/users`, `/api/blueprints`, `POST /api/initialize`, `/api/projects`,
-//! CORS, and engine wiring (see SPEC §3.5).
+//! Environment overrides:
+//! - `KEEL_API_ADDR`        bind address (default `0.0.0.0:8787`)
+//! - `KEEL_BLUEPRINTS_DIR`  blueprints directory (default `blueprints`)
+//! - `KEEL_OWNER`           GitHub owner for new repos (default `Alex793x`)
 
-use axum::{routing::get, Json, Router};
+use keel_api::{app, AppState, DEFAULT_ADDR};
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new().route("/api/health", get(health));
-    let addr = "0.0.0.0:8787";
-    let listener = tokio::net::TcpListener::bind(addr).await.expect("bind keel-api");
-    println!("keel-api listening on http://{addr}");
-    axum::serve(listener, app).await.expect("serve keel-api");
-}
+    // Honor RUST_LOG; fall back to a sensible default.
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "keel_api=info,tower_http=info".into()),
+        )
+        .init();
 
-async fn health() -> Json<serde_json::Value> {
-    Json(serde_json::json!({ "status": "ok" }))
+    let state = AppState::from_env();
+    tracing::info!(
+        owner = %state.owner,
+        blueprints_dir = %state.blueprints_dir.display(),
+        "keel-api state initialized"
+    );
+
+    let app = app(state);
+
+    let addr = std::env::var("KEEL_API_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_owned());
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .expect("bind keel-api");
+    tracing::info!("keel-api listening on http://{addr}");
+    axum::serve(listener, app).await.expect("serve keel-api");
 }

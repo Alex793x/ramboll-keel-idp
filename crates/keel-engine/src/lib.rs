@@ -11,34 +11,53 @@
 
 #![forbid(unsafe_code)]
 
+mod catalog;
+mod workflow;
+
 use std::path::{Path, PathBuf};
 
 use keel_core::{InitOutcome, InitRequest, ProgressEvent, RepoProvider, Result};
 
-/// The initialization engine. Holds the blueprint search path and the catalog location.
+/// The initialization engine. Holds the blueprint search path, the GitHub owner that new repos are
+/// created under, and the catalog location.
 #[derive(Debug, Clone)]
 pub struct Engine {
     blueprints_dir: PathBuf,
+    owner: String,
     catalog_path: PathBuf,
 }
 
 impl Engine {
-    /// Create an engine that reads blueprints from `blueprints_dir` and writes the catalog to
-    /// `<blueprints_dir>/../.keel/catalog.json`.
+    /// Create an engine that reads blueprints from `blueprints_dir`, creates repos under `owner`,
+    /// and writes the catalog to `<blueprints_dir>/../.keel/catalog.json`.
     #[must_use]
-    pub fn new(blueprints_dir: PathBuf) -> Self {
+    pub fn new(blueprints_dir: PathBuf, owner: String) -> Self {
         let catalog_path = blueprints_dir
             .parent()
             .unwrap_or(Path::new("."))
             .join(".keel")
             .join("catalog.json");
-        Self { blueprints_dir, catalog_path }
+        Self {
+            blueprints_dir,
+            owner,
+            catalog_path,
+        }
     }
 
     /// Create an engine with an explicit catalog path (used by tests).
     #[must_use]
-    pub fn with_catalog(blueprints_dir: PathBuf, catalog_path: PathBuf) -> Self {
-        Self { blueprints_dir, catalog_path }
+    pub fn with_catalog(blueprints_dir: PathBuf, owner: String, catalog_path: PathBuf) -> Self {
+        Self {
+            blueprints_dir,
+            owner,
+            catalog_path,
+        }
+    }
+
+    /// The GitHub owner (account/org) new repositories are created under.
+    #[must_use]
+    pub fn owner(&self) -> &str {
+        &self.owner
     }
 
     /// Directory blueprints are loaded from.
@@ -60,11 +79,18 @@ impl Engine {
     /// Propagates validation, render, and provider errors as [`keel_core::KeelError`].
     pub fn initialize(
         &self,
-        _req: &InitRequest,
-        _provider: &dyn RepoProvider,
-        _on_event: &mut dyn FnMut(&ProgressEvent),
+        req: &InitRequest,
+        provider: &dyn RepoProvider,
+        on_event: &mut dyn FnMut(&ProgressEvent),
     ) -> Result<InitOutcome> {
-        todo!("Fleet-Engine-RS: implement the 8 ordered idempotent steps")
+        workflow::run(
+            req,
+            &self.owner,
+            &self.blueprints_dir,
+            &self.catalog_path,
+            provider,
+            on_event,
+        )
     }
 
     /// All projects recorded in the catalog.
@@ -72,6 +98,6 @@ impl Engine {
     /// # Errors
     /// [`keel_core::KeelError::Io`] if the catalog cannot be read/parsed.
     pub fn list_projects(&self) -> Result<Vec<InitOutcome>> {
-        todo!("Fleet-Engine-RS: read the JSON catalog")
+        catalog::read(&self.catalog_path)
     }
 }

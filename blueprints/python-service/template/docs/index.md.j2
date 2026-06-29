@@ -2,8 +2,10 @@
 
 > {{ description }}
 
-Owned by **{{ owning_team }}**. Generated from the Ramboll Developer Platform
-(Keel) `python-service` golden-path blueprint.
+Owned by the **{{ department.name }}** department
+({% for u in users %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}).
+Generated from the Ramboll Developer Platform (Keel) `python-service`
+golden-path blueprint.
 
 ## What this is
 

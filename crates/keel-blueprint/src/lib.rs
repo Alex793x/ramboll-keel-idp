@@ -9,15 +9,19 @@
 //!   suffix is then stripped); every other file is copied **verbatim** so GitHub Actions `${{ … }}`
 //!   expressions survive untouched.
 //! - `template.conditions` may include/exclude paths based on a `when` expression.
-//!
-//! > Phase-0 stub: public signatures are frozen; `Fleet-Blueprint-RS` fills the bodies + tests.
 
 #![forbid(unsafe_code)]
 
+mod context;
+mod manifest;
+mod renderer;
+
 use std::path::Path;
 
-use keel_core::{InitRequest, RenderedFile, Result};
+use keel_core::{InitRequest, KeelError, RenderedFile, Result};
 use serde::{Deserialize, Serialize};
+
+pub use context::derive_context;
 
 /// A parsed blueprint manifest (`keel/v1`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -35,6 +39,12 @@ pub struct Manifest {
     pub parameters: Vec<Parameter>,
     #[serde(default)]
     pub repository: RepositorySpec,
+    /// `template.root` (default `"template"`), `rename` suffix, and conditional path rules.
+    #[serde(default)]
+    pub template: TemplateSpec,
+    /// Ordered post-render workflow actions (informational; the engine owns execution).
+    #[serde(default)]
+    pub post_actions: Vec<String>,
 }
 
 /// One form parameter (becomes a Hub form field).
@@ -65,35 +75,68 @@ pub struct RepositorySpec {
     pub protect: Vec<keel_core::ProtectionPolicy>,
 }
 
+/// `template:` section of the manifest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemplateSpec {
+    /// Sub-directory under the blueprint dir holding the tree to render. Default `"template"`.
+    pub root: String,
+    /// Suffix marking a file whose contents are rendered then stripped. Default `".j2"`.
+    pub rename: String,
+    /// Conditional include/exclude rules evaluated against rendered destination paths.
+    #[serde(default)]
+    pub conditions: Vec<Condition>,
+}
+
+impl Default for TemplateSpec {
+    fn default() -> Self {
+        Self {
+            root: "template".to_owned(),
+            rename: ".j2".to_owned(),
+            conditions: Vec::new(),
+        }
+    }
+}
+
+/// One conditional rule: the listed `paths` are included only when `when` evaluates truthy
+/// (otherwise excluded). Paths are compared against the **rendered** destination path.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Condition {
+    /// A MiniJinja boolean expression, e.g. `"service_kind == 'rest-api'"`.
+    pub when: String,
+    /// Destination paths (after `{{ }}` interpolation, no `.j2`) governed by this rule.
+    #[serde(default)]
+    pub paths: Vec<String>,
+}
+
 /// Load and parse `<blueprint_dir>/blueprint.yaml`.
 ///
 /// # Errors
 /// [`keel_core::KeelError::Io`] if unreadable, [`keel_core::KeelError::Validation`] if malformed.
-pub fn load_manifest(_blueprint_dir: &Path) -> Result<Manifest> {
-    todo!("Fleet-Blueprint-RS: parse blueprint.yaml into Manifest")
+pub fn load_manifest(blueprint_dir: &Path) -> Result<Manifest> {
+    let path = blueprint_dir.join("blueprint.yaml");
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| KeelError::Io(format!("reading {}: {e}", path.display())))?;
+    manifest::parse(&raw)
 }
 
 /// Validate a request against the manifest (required params present, enums/pattern satisfied).
 ///
 /// # Errors
 /// [`keel_core::KeelError::Validation`] on any rule violation.
-pub fn validate_request(_manifest: &Manifest, _req: &InitRequest) -> Result<()> {
-    todo!("Fleet-Blueprint-RS: validate the request against the manifest")
-}
-
-/// Build the MiniJinja context: form inputs + derived `package_name`, `year`,
-/// `branch_conventions`, `department`, `users`.
-#[must_use]
-pub fn derive_context(_req: &InitRequest) -> serde_json::Map<String, serde_json::Value> {
-    todo!("Fleet-Blueprint-RS: derive the render context")
+pub fn validate_request(manifest: &Manifest, req: &InitRequest) -> Result<()> {
+    manifest::validate(manifest, req)
 }
 
 /// Render the template tree into an in-memory file set per the renderer rules above.
 ///
 /// # Errors
 /// [`keel_core::KeelError::Render`] on any template/IO failure.
-pub fn render(_manifest: &Manifest, _blueprint_dir: &Path, _req: &InitRequest) -> Result<Vec<RenderedFile>> {
-    todo!("Fleet-Blueprint-RS: render template/ with MiniJinja per the frozen rules")
+pub fn render(
+    manifest: &Manifest,
+    blueprint_dir: &Path,
+    req: &InitRequest,
+) -> Result<Vec<RenderedFile>> {
+    renderer::render(manifest, blueprint_dir, req)
 }
 
 /// Derive a keyword-safe Python/Rust package name from a project name (`-` → `_`).
@@ -102,7 +145,13 @@ pub fn render(_manifest: &Manifest, _blueprint_dir: &Path, _req: &InitRequest) -
 pub fn to_package_name(project_name: &str) -> String {
     let mut s: String = project_name
         .chars()
-        .map(|c| if c == '-' { '_' } else { c.to_ascii_lowercase() })
+        .map(|c| {
+            if c == '-' {
+                '_'
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
         .collect();
     // Avoid leading digit and Python keywords producing an invalid module name.
     const KEYWORDS: &[&str] = &[

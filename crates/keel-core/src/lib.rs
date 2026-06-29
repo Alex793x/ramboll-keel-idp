@@ -60,7 +60,9 @@ impl std::str::FromStr for ServiceKind {
         match s {
             "rest-api" | "rest_api" | "restapi" => Ok(ServiceKind::RestApi),
             "worker" => Ok(ServiceKind::Worker),
-            other => Err(KeelError::Validation(format!("unknown service_kind: {other:?}"))),
+            other => Err(KeelError::Validation(format!(
+                "unknown service_kind: {other:?}"
+            ))),
         }
     }
 }
@@ -132,7 +134,10 @@ pub struct RenderedFile {
 impl RenderedFile {
     #[must_use]
     pub fn text(path: impl Into<String>, contents: impl Into<String>) -> Self {
-        Self { path: path.into(), contents: contents.into().into_bytes() }
+        Self {
+            path: path.into(),
+            contents: contents.into().into_bytes(),
+        }
     }
 }
 
@@ -159,14 +164,33 @@ pub struct ProgressEvent {
 
 impl ProgressEvent {
     #[must_use]
-    pub fn new(step: u8, key: &str, title: &str, status: Status, detail: impl Into<String>) -> Self {
-        Self { step, key: key.to_owned(), title: title.to_owned(), status, detail: detail.into() }
+    pub fn new(
+        step: u8,
+        key: &str,
+        title: &str,
+        status: Status,
+        detail: impl Into<String>,
+    ) -> Self {
+        Self {
+            step,
+            key: key.to_owned(),
+            title: title.to_owned(),
+            status,
+            detail: detail.into(),
+        }
     }
 }
 
 /// The canonical, ordered keys of the 8-step initialization workflow (whitepaper §6).
 pub const WORKFLOW_STEPS: [&str; 8] = [
-    "signin", "form", "render", "create_repo", "commit", "branches", "seed_ci", "register",
+    "signin",
+    "form",
+    "render",
+    "create_repo",
+    "commit",
+    "branches",
+    "seed_ci",
+    "register",
 ];
 
 /// Where a created repository lives.
@@ -272,12 +296,24 @@ mod serde_bytes_b64 {
     pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> std::result::Result<S::Ok, S::Error> {
         let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
         for chunk in bytes.chunks(3) {
-            let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
             let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
             out.push(TABLE[((n >> 18) & 63) as usize] as char);
             out.push(TABLE[((n >> 12) & 63) as usize] as char);
-            out.push(if chunk.len() > 1 { TABLE[((n >> 6) & 63) as usize] as char } else { '=' });
-            out.push(if chunk.len() > 2 { TABLE[(n & 63) as usize] as char } else { '=' });
+            out.push(if chunk.len() > 1 {
+                TABLE[((n >> 6) & 63) as usize] as char
+            } else {
+                '='
+            });
+            out.push(if chunk.len() > 2 {
+                TABLE[(n & 63) as usize] as char
+            } else {
+                '='
+            });
         }
         s.serialize_str(&out)
     }
@@ -330,7 +366,10 @@ mod tests {
 
     #[test]
     fn service_kind_roundtrips() {
-        assert_eq!("rest-api".parse::<ServiceKind>().unwrap(), ServiceKind::RestApi);
+        assert_eq!(
+            "rest-api".parse::<ServiceKind>().unwrap(),
+            ServiceKind::RestApi
+        );
         assert_eq!(ServiceKind::Worker.as_token(), "worker");
         assert!("nope".parse::<ServiceKind>().is_err());
     }
@@ -342,7 +381,10 @@ mod tests {
 
     #[test]
     fn rendered_file_b64_roundtrips() {
-        let f = RenderedFile { path: "x".into(), contents: b"hello \x00\xff world".to_vec() };
+        let f = RenderedFile {
+            path: "x".into(),
+            contents: b"hello \x00\xff world".to_vec(),
+        };
         let json = serde_json::to_string(&f).unwrap();
         let back: RenderedFile = serde_json::from_str(&json).unwrap();
         assert_eq!(f, back);

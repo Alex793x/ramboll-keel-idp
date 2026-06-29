@@ -1,8 +1,9 @@
 # CLAUDE.md — agent guide for {{ project_name }}
 
 This file orients **Claude Code** (and any Claude-based coding agent) working in
-`{{ project_name }}`, a Ramboll **{{ service_kind }}** service owned by
-**{{ owning_team }}**. {{ description }}
+`{{ project_name }}`, a Ramboll **{{ service_kind }}** service owned by the
+**{{ department.name }}** department
+({% for u in users %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}). {{ description }}
 
 ## Read these skills first — they are binding
 

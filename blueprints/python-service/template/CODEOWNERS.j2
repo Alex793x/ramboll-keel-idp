@@ -2,9 +2,9 @@
 # Branch protection on `main` requires CODEOWNERS approval (see CONTRIBUTING.md).
 # Syntax: https://docs.github.com/articles/about-code-owners
 
-# Default owner for everything in the repository.
-* @ramboll/{{ owning_team }}
+# Owned by the {{ department.name }} department and the selected users.
+* @{{ department.team_slug }}{% for u in users %} @{{ u.github_login }}{% endfor %}
 
-# Keep CI governance and the embedded standards owned by the team explicitly.
-/.github/        @ramboll/{{ owning_team }}
-/.claude/        @ramboll/{{ owning_team }}
+# Keep CI governance and the embedded standards owned explicitly.
+/.github/        @{{ department.team_slug }}{% for u in users %} @{{ u.github_login }}{% endfor %}
+/.claude/        @{{ department.team_slug }}{% for u in users %} @{{ u.github_login }}{% endfor %}

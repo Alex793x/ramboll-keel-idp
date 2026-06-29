@@ -1,9 +1,11 @@
 name: reusable-build
 
 # Central, reusable BUILD workflow for the Ramboll Developer Platform (Keel).
-# Every generated repo's `build.yml` calls this by path:
-#   uses: Ramboll-RDP/keel/.github/workflows/reusable-build.yml@v1
+# Every generated repo's `build.yml` calls this by path (contract: SPEC §6 +
+# Tracker integration contracts):
+#   uses: Alex793x/keel/.github/workflows/reusable-build.yml@main
 # Fix the build once here and every blueprint benefits — no copy-pasted pipelines.
+# Filename + the `python-version` input below are the frozen part of the contract.
 
 on:
   workflow_call:

@@ -1,7 +1,8 @@
 # Contributing to {{ project_name }}
 
-Thanks for contributing. `{{ project_name }}` is owned by **{{ owning_team }}** and
-follows the Ramboll Developer Platform golden-path standards. These standards are
+Thanks for contributing. `{{ project_name }}` is owned by the **{{ department.name }}**
+department ({% for u in users %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %})
+and follows the Ramboll Developer Platform golden-path standards. These standards are
 **non-negotiable** — they are what make the service maintainable and green.
 
 ## Branching model
@@ -37,7 +38,7 @@ test: add property test for word_count invariance
 ## Pull requests
 
 1. Open the PR **into `dev`**.
-2. A review is required, and **CODEOWNERS** (`@ramboll/{{ owning_team }}`) must approve.
+2. A review is required, and **CODEOWNERS** (`@{{ department.team_slug }}`{% for u in users %} `@{{ u.github_login }}`{% endfor %}) must approve.
 3. The **Build / Test / Validate** checks must all be **green** before merge.
 4. Fill in the PR template checklist.
 

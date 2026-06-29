@@ -6,8 +6,10 @@
 
 ## Context
 
-`{{ project_name }}` is a Ramboll **{{ service_kind }}** service owned by
-**{{ owning_team }}**. In one sentence: {{ description }}
+`{{ project_name }}` is a Ramboll **{{ service_kind }}** service owned by the
+**{{ department.name }}** department
+({% for u in users %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}).
+In one sentence: {{ description }}
 
 ## Components
 

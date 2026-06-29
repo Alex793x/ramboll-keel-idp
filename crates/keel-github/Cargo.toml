@@ -10,6 +10,8 @@ authors.workspace = true
 keel-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# Used by GhCliProvider (staging dir for `gh repo create --source`) and LocalDirProvider tests.
+tempfile = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -141,7 +141,7 @@ a `branch-protection.json` into the repo as the durable record).
 ```rust
 pub struct Engine { /* holds blueprints_dir, catalog path */ }
 impl Engine {
-  pub fn new(blueprints_dir: PathBuf) -> Self;
+  pub fn new(blueprints_dir: PathBuf, owner: String) -> Self;  // owner = GitHub account/org for new repos
   pub fn initialize(&self, req: &InitRequest, provider: &dyn RepoProvider,
                     on_event: &mut dyn FnMut(&ProgressEvent)) -> keel_core::Result<InitOutcome>;
   pub fn list_projects(&self) -> keel_core::Result<Vec<InitOutcome>>;   // from catalog (JSON file)

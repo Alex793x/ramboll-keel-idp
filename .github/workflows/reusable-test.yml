@@ -1,9 +1,11 @@
 name: reusable-test
 
 # Central, reusable TEST workflow for the Ramboll Developer Platform (Keel).
-# Every generated repo's `test.yml` calls this by path:
-#   uses: Ramboll-RDP/keel/.github/workflows/reusable-test.yml@v1
+# Every generated repo's `test.yml` calls this by path (contract: SPEC §6 +
+# Tracker integration contracts):
+#   uses: Alex793x/keel/.github/workflows/reusable-test.yml@main
 # Runs the seeded smoke + Hypothesis property tests (the "green from birth" bar).
+# Filename + the `python-version` input below are the frozen part of the contract.
 
 on:
   workflow_call:

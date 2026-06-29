@@ -72,7 +72,7 @@ reusable workflows by path** and pass only inputs:
 ```yaml
 jobs:
   build:
-    uses: Ramboll-RDP/keel/.github/workflows/reusable-build.yml@v1
+    uses: Alex793x/keel/.github/workflows/reusable-build.yml@main
     with:
       python-version: "3.12"
 ```
@@ -83,7 +83,7 @@ Rules:
   repo workflow. If the pipeline must change, change the **central reusable
   workflow** so every service inherits the fix ("fix once, benefit everyone").
 - Do not add bespoke workflows that duplicate Build/Test/Validate.
-- Pin the reusable workflow ref (`@v1`); bump deliberately.
+- Pin the reusable workflow ref (`@main`); bump deliberately.
 
 ## Checklist
 

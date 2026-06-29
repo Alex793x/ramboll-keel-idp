@@ -9,6 +9,6 @@ on:
 
 jobs:
   build:
-    uses: Ramboll-RDP/keel/.github/workflows/reusable-build.yml@v1
+    uses: Alex793x/keel/.github/workflows/reusable-build.yml@main
     with:
       python-version: "3.12"

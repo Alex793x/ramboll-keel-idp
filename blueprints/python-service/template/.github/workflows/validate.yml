@@ -10,6 +10,6 @@ on:
 
 jobs:
   validate:
-    uses: Ramboll-RDP/keel/.github/workflows/reusable-validate.yml@v1
+    uses: Alex793x/keel/.github/workflows/reusable-validate.yml@main
     with:
       python-version: "3.12"

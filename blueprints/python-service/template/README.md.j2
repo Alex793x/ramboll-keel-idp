@@ -2,7 +2,8 @@
 
 > {{ description }}
 
-A Ramboll **{{ service_kind }}** service, owned by **{{ owning_team }}**.
+A Ramboll **{{ service_kind }}** service, owned by the **{{ department.name }}**
+department ({% for u in users %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}).
 Generated from the Ramboll Developer Platform (Keel) `python-service`
 golden-path blueprint — **green from birth**: it compiles and passes its smoke
 and property tests on the very first commit.
