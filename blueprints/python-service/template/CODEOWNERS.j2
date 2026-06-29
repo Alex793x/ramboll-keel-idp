@@ -1,10 +1,11 @@
 # CODEOWNERS — required reviewers for {{ project_name }}.
+# Owners: the {{ department.name }} department, represented by the selected users below.
 # Branch protection on `main` requires CODEOWNERS approval (see CONTRIBUTING.md).
+# On a GitHub org you may also grant the whole team: @<your-org>/{{ department.team_slug }}
 # Syntax: https://docs.github.com/articles/about-code-owners
 
-# Owned by the {{ department.name }} department and the selected users.
-* @{{ department.team_slug }}{% for u in users %} @{{ u.github_login }}{% endfor %}
+* {% for u in users %}@{{ u.github_login }}{% if not loop.last %} {% endif %}{% endfor %}
 
 # Keep CI governance and the embedded standards owned explicitly.
-/.github/        @{{ department.team_slug }}{% for u in users %} @{{ u.github_login }}{% endfor %}
-/.claude/        @{{ department.team_slug }}{% for u in users %} @{{ u.github_login }}{% endfor %}
+/.github/ {% for u in users %}@{{ u.github_login }}{% if not loop.last %} {% endif %}{% endfor %}
+/.claude/ {% for u in users %}@{{ u.github_login }}{% if not loop.last %} {% endif %}{% endfor %}

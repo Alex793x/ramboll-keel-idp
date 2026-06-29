@@ -120,7 +120,7 @@ sequenceDiagram
 
   Note over Eng: 7. seed_ci (workflows reference reusable CI)
   Eng->>RP: write_protection(policy)
-  RP->>Git: best-effort branch protection (else commit branch-protection.json)
+  RP->>Git: best-effort branch protection (engine always commits branch-protection.json)
 
   Note over Eng: 8. register
   Eng->>Eng: append to JSON catalog (project + blueprint_version)
@@ -149,7 +149,7 @@ pub trait RepoProvider {
 
 | Implementation | Where | Behaviour |
 | --- | --- | --- |
-| **`GhCliProvider`** | `keel-github` | Shells out to `gh` + `git`: `git init -b main` → commit → `gh repo create <owner>/<name> --private --source . --remote origin --push`. Idempotent: if `gh repo view` succeeds, creation is skipped. `ensure_branches` pushes `dev`/`staging`; `write_protection` is best-effort via `gh api` and, on failure (e.g. personal repos), emits `Skipped` and commits a durable `branch-protection.json` into the repo. |
+| **`GhCliProvider`** | `keel-github` | Shells out to `gh` + `git`: `git init -b main` → commit → `gh repo create <owner>/<name> --private --source . --remote origin --push`. Idempotent: if `gh repo view` succeeds, creation is skipped. `ensure_branches` pushes `dev`/`staging`; `write_protection` is best-effort via `gh api` and never aborts on failure (e.g. personal repos). The durable record is a `branch-protection.json` that the **engine** always commits into the repo. |
 | **`FakeProvider`** | `keel-github` | In-memory: records created repos, branches, and files. No network. Exposes `created()` for assertions. |
 | **`LocalDir`** | via `keel-cli --local <dir>` | Materializes the rendered tree to a directory instead of GitHub. |
 

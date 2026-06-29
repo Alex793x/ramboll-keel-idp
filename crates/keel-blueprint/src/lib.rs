@@ -1,6 +1,6 @@
 //! # keel-blueprint
 //!
-//! Loads a blueprint manifest (`blueprint.yaml`, schema `keel/v1`), validates an [`InitRequest`]
+//! Loads a blueprint manifest (`blueprint.yaml`, schema `keel/v2`), validates an [`InitRequest`]
 //! against it, derives the rendering context, and renders the `template/` tree with MiniJinja.
 //!
 //! **Renderer rules (frozen contract):**
@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 pub use context::derive_context;
 
-/// A parsed blueprint manifest (`keel/v1`).
+/// A parsed blueprint manifest (`keel/v2`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Manifest {
     pub api_version: String,

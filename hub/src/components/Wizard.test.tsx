@@ -127,6 +127,50 @@ describe("Wizard (integration)", () => {
     );
   });
 
+  it("surfaces an alert and re-enables submit when initialize fails", async () => {
+    const user = userEvent.setup();
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        });
+      if (url.endsWith("/api/blueprints")) return json(FIXTURE_BLUEPRINTS);
+      if (url.endsWith("/api/departments")) return json(FIXTURE_DEPARTMENTS);
+      const m = url.match(/\/api\/departments\/([^/]+)\/users$/);
+      if (m) return json(FIXTURE_USERS[decodeURIComponent(m[1]!)] ?? []);
+      if (url.endsWith("/api/initialize") && init?.method === "POST") {
+        return json({ error: "gh repo create failed" }, 500);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const api = new KeelApi({ baseUrl: "http://api.test", fetchImpl });
+    render(<Wizard api={api} blueprint="python-service" />);
+
+    await user.click(await screen.findByText("Buildings"));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await user.click(await screen.findByText("Anya Sørensen"));
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await user.type(await screen.findByLabelText(/project name/i), "invoicing-api");
+    await user.type(screen.getByLabelText(/description/i), "Invoice service");
+    await user.type(screen.getByLabelText(/author/i), "Anya Sørensen");
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    const submitBtn = await screen.findByRole("button", { name: /initialize project/i });
+    await user.click(submitBtn);
+
+    // The failure is announced via role="alert" and the submit control is usable again
+    // (not stuck on "Initializing…"). A regression that swallowed the error would fail here.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/initialization failed/i);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /initialize project/i }),
+      ).toBeEnabled(),
+    );
+  });
+
   it("resets selected users when the department changes mid-flow", async () => {
     const user = userEvent.setup();
     const api = new KeelApi({ baseUrl: "http://api.test", fetchImpl: makeFetchMock() });

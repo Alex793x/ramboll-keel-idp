@@ -97,8 +97,8 @@ impl RepoProvider for LocalDirProvider {
     }
 
     fn write_protection(&self, _repo: &RepoCoordinates, _policy: &ProtectionPolicy) -> Result<()> {
-        // Local disk has no branch-protection concept; the durable record is the committed
-        // `branch-protection.json`. No-op (best-effort, like the gh provider).
+        // Local disk has no branch-protection concept; the durable record is the
+        // `branch-protection.json` committed by the engine. No-op (best-effort, like the gh provider).
         Ok(())
     }
 }

@@ -30,8 +30,9 @@ Cut short-lived branches from `dev`, named **exactly** `<type>/<ticket>-<slug>`:
 - `bug/<ticket>-<slug>` — defect fix
 - `hotfix/<ticket>-<slug>` — urgent production fix
 
-Regex the CI uses: `^(feature|bug|hotfix)/[A-Z]+-[0-9]+-[a-z0-9-]+$`
-(plus the protected `main`/`dev`/`staging`).
+CI enforces the prefix rule `^(feature|bug|hotfix)/.+$` (plus the protected
+`main`/`dev`/`staging`). The `<ticket>-<slug>` shape above is the **recommended
+team convention** — adopt it even though CI only checks the prefix.
 
 ```bash
 # Good:

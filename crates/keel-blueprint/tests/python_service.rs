@@ -70,28 +70,21 @@ fn renders_real_python_service_blueprint() {
     let co = String::from_utf8_lossy(&codeowners.contents);
     assert!(!co.trim().is_empty(), "CODEOWNERS is empty");
 
-    let team = &req.department.team_slug;
-    let logins: Vec<&str> = req.users.iter().map(|u| u.github_login.as_str()).collect();
-    let has_team = co.contains(team);
-    let has_logins = logins.iter().all(|l| co.contains(l));
-    if has_team && has_logins {
-        // Refined template: full ownership reflected.
+    // CODEOWNERS must name every selected user as an owner and reference the owning department
+    // (requirement #4: the selection drives CODEOWNERS). Asserted unconditionally.
+    for u in &req.users {
         assert!(
-            has_team,
-            "CODEOWNERS should mention department team slug {team}"
-        );
-        for l in &logins {
-            assert!(co.contains(l), "CODEOWNERS should mention github_login {l}");
-        }
-    } else {
-        // Tolerant fallback: the PY agent has not yet wired team_slug/github_login in.
-        // Existence + non-empty is enough; the deeper assertion is recorded in the tracker.
-        eprintln!(
-            "NOTE: CODEOWNERS does not yet contain department.team_slug and all github_logins \
-             (has_team={has_team}, has_logins={has_logins}); asserting existence only. \
-             Re-tighten once Fleet-Blueprint-PY refines the template."
+            co.contains(&u.github_login),
+            "CODEOWNERS must list selected owner @{}",
+            u.github_login
         );
     }
+    assert!(
+        co.contains(&req.department.name) || co.contains(&req.department.team_slug),
+        "CODEOWNERS must reference the owning department ({} / {})",
+        req.department.name,
+        req.department.team_slug
+    );
 
     // ── Three AI agent skills ───────────────────────────────────────────────────
     for skill in [
@@ -120,19 +113,12 @@ fn renders_real_python_service_blueprint() {
             "{wf} must be copied verbatim (byte-identical)"
         );
 
+        // Requirement #4: each caller workflow must reference the central reusable workflow.
         let body = String::from_utf8_lossy(&rendered.contents);
-        if body.contains("${{") {
-            // Refined CI: verbatim preservation of the expression is now directly observable.
-            assert!(
-                body.contains("${{"),
-                "{wf} should preserve `${{{{` expressions verbatim"
-            );
-        } else {
-            eprintln!(
-                "NOTE: {wf} contains no `${{{{` yet (Fleet-CI not refined); verified byte-identical \
-                 verbatim copy instead. Re-tighten once reusable workflows add `${{{{` expressions."
-            );
-        }
+        assert!(
+            body.contains("uses:") && body.contains("reusable-"),
+            "{wf} must reference the reusable workflow via `uses: .../reusable-*.yml@…`"
+        );
     }
 
     // ── Package source exists with interpolated path ────────────────────────────

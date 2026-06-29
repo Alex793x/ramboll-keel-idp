@@ -1,11 +1,12 @@
 name: reusable-test
 
 # Central, reusable TEST workflow for the Ramboll Developer Platform (Keel).
-# Every generated repo's `test.yml` calls this by path (contract: SPEC §6 +
-# Tracker integration contracts):
+# Every generated repo's `test.yml` calls this by path (contract: SPEC §6):
 #   uses: Alex793x/keel/.github/workflows/reusable-test.yml@main
 # Runs the seeded smoke + Hypothesis property tests (the "green from birth" bar).
-# Filename + the `python-version` input below are the frozen part of the contract.
+#
+# Self-contained: setup is inlined (a remote caller does not ship our composite
+# action). Filename + the `python-version` input are the frozen contract.
 
 on:
   workflow_call:
@@ -24,10 +25,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python environment
-        uses: ./.github/actions/setup-python-env
+      - name: Set up Python ${{ inputs.python-version }}
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ inputs.python-version }}
+          cache: "pip"
+
+      - name: Install package + test toolchain
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f setup.cfg ]; then
+            python -m pip install ".[dev]" || python -m pip install .
+          fi
+          # Ensure the runners are present even if the project omits a dev extra.
+          python -m pip install pytest hypothesis
 
       - name: Run tests
         shell: bash

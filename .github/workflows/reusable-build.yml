@@ -1,10 +1,13 @@
 name: reusable-build
 
 # Central, reusable BUILD workflow for the Ramboll Developer Platform (Keel).
-# Every generated repo's `build.yml` calls this by path (contract: SPEC §6 +
-# Tracker integration contracts):
+# Every generated repo's `build.yml` calls this by path (contract: SPEC §6):
 #   uses: Alex793x/keel/.github/workflows/reusable-build.yml@main
 # Fix the build once here and every blueprint benefits — no copy-pasted pipelines.
+#
+# NOTE: this workflow is SELF-CONTAINED. When a remote repo calls a reusable
+# workflow, any `uses: ./...` local-action path resolves against the *caller's*
+# checkout (which does not ship our composite action), so setup is inlined here.
 # Filename + the `python-version` input below are the frozen part of the contract.
 
 on:
@@ -24,10 +27,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python environment
-        uses: ./.github/actions/setup-python-env
+      - name: Set up Python ${{ inputs.python-version }}
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ inputs.python-version }}
+          cache: "pip"
+
+      - name: Upgrade pip
+        shell: bash
+        run: python -m pip install --upgrade pip
 
       - name: Install package (generic)
         shell: bash
@@ -42,12 +50,12 @@ jobs:
         shell: bash
         run: python -m compileall -q .
 
-      - name: Build distribution (if `build` is available)
+      - name: Build distribution (if packaging metadata exists)
         shell: bash
         run: |
           if [ -f pyproject.toml ] || [ -f setup.py ]; then
             python -m pip install build
             python -m build
           else
-            echo "No packaging metadata — skipping `python -m build`."
+            echo "No packaging metadata — skipping python -m build."
           fi

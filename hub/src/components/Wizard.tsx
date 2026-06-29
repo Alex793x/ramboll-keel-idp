@@ -47,17 +47,20 @@ type SubmitState =
 
 export function Wizard({ api, blueprint = "python-service" }: WizardProps) {
   const client = api ?? getApi();
+  // Guard against an explicitly-passed empty/blank blueprint (e.g. `/new?blueprint=`),
+  // which would otherwise leave the wizard permanently unsubmittable with no feedback.
+  const safeBlueprint = blueprint.trim() || "python-service";
   const [state, dispatch] = useReducer(
     wizardReducer,
-    blueprint,
+    safeBlueprint,
     initialWizardState,
   );
   const [submit, setSubmit] = useState<SubmitState>({ phase: "idle" });
 
   // Keep the reducer's blueprint in sync if the prop changes (catalog CTA).
   useEffect(() => {
-    dispatch({ type: "set_blueprint", value: blueprint });
-  }, [blueprint]);
+    dispatch({ type: "set_blueprint", value: safeBlueprint });
+  }, [safeBlueprint]);
 
   async function handleSubmit() {
     const payload = buildInitializePayload(state);
@@ -86,7 +89,7 @@ export function Wizard({ api, blueprint = "python-service" }: WizardProps) {
             className="rb-btn rb-btn--secondary"
             onClick={() => {
               setSubmit({ phase: "idle" });
-              dispatch({ type: "reset", blueprint });
+              dispatch({ type: "reset", blueprint: safeBlueprint });
             }}
           >
             Start another
@@ -190,30 +193,29 @@ function DepartmentStep({
         <h2>Select a department</h2>
       </legend>
       {loading ? <p className="rb-muted">Loading departments…</p> : null}
-      {error ? <p className="rb-error">{error.message}</p> : null}
+      {error ? (
+        <p className="rb-error" role="alert">
+          {error.message}
+        </p>
+      ) : null}
       {data?.map((dept) => {
         const selected = dept.id === selectedId;
         return (
-          <div
+          <label
             key={dept.id}
-            role="radio"
-            aria-checked={selected}
-            tabIndex={0}
             className={selected ? "rb-option rb-option--selected" : "rb-option"}
-            onClick={() => onSelect(dept.id)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onSelect(dept.id);
-              }
-            }}
           >
-            <span aria-hidden>{selected ? "●" : "○"}</span>
+            <input
+              type="radio"
+              name="department"
+              checked={selected}
+              onChange={() => onSelect(dept.id)}
+            />
             <span className="rb-stack">
               <strong>{dept.name}</strong>
               <span className="rb-option__meta">team @{dept.team_slug}</span>
             </span>
-          </div>
+          </label>
         );
       })}
     </fieldset>
@@ -246,7 +248,11 @@ function UsersStep({
         Selected users become CODEOWNERS / reviewers. Pick at least one.
       </p>
       {loading ? <p className="rb-muted">Loading users…</p> : null}
-      {error ? <p className="rb-error">{error.message}</p> : null}
+      {error ? (
+        <p className="rb-error" role="alert">
+          {error.message}
+        </p>
+      ) : null}
       {data?.map((user) => {
         const checked = selected.includes(user.id);
         return (
@@ -297,12 +303,15 @@ function DetailsStep({
           id="project_name"
           value={projectName}
           aria-invalid={!nameValid}
+          aria-describedby="project_name_hint"
           placeholder="invoicing-api"
           onChange={(e) =>
             onChange({ type: "set_project_name", value: e.target.value })
           }
         />
-        <span className={nameValid ? "rb-hint" : "rb-error"}>{PROJECT_NAME_HINT}</span>
+        <span id="project_name_hint" className={nameValid ? "rb-hint" : "rb-error"}>
+          {PROJECT_NAME_HINT}
+        </span>
       </div>
 
       <div className="rb-field">

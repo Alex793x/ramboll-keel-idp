@@ -4,8 +4,8 @@ This directory does **two** jobs for the Ramboll Developer Platform (RDP):
 
 1. **Keel's own v2 CI** (`workflows/ci.yml`) — tests *this* repo: a **Rust** Cargo
    workspace engine (`crates/keel-*`) and a **TanStack Start** hub (`hub/`).
-2. **A reusable CI library** (`workflows/reusable-*.yml` + `actions/setup-python-env`)
-   — the central pipelines that **every blueprint-generated Python repo** points to.
+2. **A reusable CI library** (`workflows/reusable-*.yml`) — the central, **self-contained**
+   pipelines that **every blueprint-generated Python repo** points to.
 
 > **The point of the reusable half:** avoid pipeline copy-paste. A generated repo
 > ships tiny caller workflows that delegate to the reusable workflows here. **Fix
@@ -18,10 +18,8 @@ This directory does **two** jobs for the Ramboll Developer Platform (RDP):
 
 ```
 .github/
-├── actions/
-│   └── setup-python-env/action.yml   # composite action — shared building block (generated repos)
 ├── scripts/
-│   └── check_branch_name.py          # standalone, unit-testable branch-name rule
+│   └── check_branch_name.py          # reference implementation of the branch-name rule (local/dev use)
 └── workflows/
     ├── ci.yml                        # Keel's OWN v2 CI: rust + hub + blueprint-is-software
     ├── reusable-build.yml            # on: workflow_call — build & import check  (generated repos)
@@ -80,22 +78,24 @@ commands have all their tooling. The blueprint targets `>=3.11`; CI pins 3.12.
 
 ## Part 2 — the reusable library for generated Python repos
 
-The `reusable-*.yml` workflows and the `setup-python-env` composite action are a
-**separate product** from Keel's own CI. They are **not** invoked by `ci.yml`;
-they exist so that each generated repo carries only a thin caller and inherits
-all real logic from here.
+The `reusable-*.yml` workflows are a **separate product** from Keel's own CI. They
+are **not** invoked by `ci.yml`; they exist so that each generated repo carries
+only a thin caller and inherits all real logic from here.
 
 ### The reusable workflow contract
 
-Generated repos call these by **path + ref**. The owner/repo is `Alex793x/keel`
-and the ref is the moving `@main` branch (per SPEC §6 + the Tracker integration
-contracts; the blueprint agent owns and updates the caller refs):
+Generated repos call these by **path + ref**. For the MVP the owner/repo is
+`Alex793x/keel` at the moving `@main` ref (the test account authorised for this
+build). **Production note:** move these to a Ramboll org and pin a version tag
+(e.g. `uses: Ramboll-RDP/keel/.github/workflows/reusable-build.yml@v1`) so generated
+repos depend on an org-owned, deliberately-versioned pipeline rather than one
+person's `@main`. This is tracked as a decision in `Tracker.md` (D-07).
 
 | Reusable workflow | `on: workflow_call` inputs | What it does |
 | --- | --- | --- |
-| `reusable-build.yml`    | `python-version` (default `"3.12"`) | setup env (composite), `pip install .`, `compileall` import check, `python -m build` if available |
-| `reusable-test.yml`     | `python-version` (default `"3.12"`) | setup env (composite), `pytest -q` (smoke + Hypothesis property tests) |
-| `reusable-validate.yml` | `python-version` (default `"3.12"`) | setup env (composite), `ruff check`, `black --check`, `mypy`, branch-name governance, `mkdocs build --strict` (if `mkdocs.yml`) |
+| `reusable-build.yml`    | `python-version` (default `"3.12"`) | set up Python (inlined), `pip install .`, `compileall` import check, `python -m build` if available |
+| `reusable-test.yml`     | `python-version` (default `"3.12"`) | set up Python (inlined), `pytest -q` (smoke + Hypothesis property tests) |
+| `reusable-validate.yml` | `python-version` (default `"3.12"`) | set up Python (inlined), `ruff check`, `black --check`, `mypy`, branch-name governance, `mkdocs build --strict` (if `mkdocs.yml`) |
 
 These three **filenames** and the single `workflow_call` input **`python-version`**
 are the frozen API contract: the blueprint generates caller workflows against
@@ -124,22 +124,20 @@ jobs:
 `reusable-test.yml@main` and `reusable-validate.yml@main` respectively. That is
 the whole pipeline a generated repo carries — all real logic lives here.
 
-### Why it is modular: the composite action
+### Why it is modular — and why setup is inlined (not a composite action)
 
-All three reusable workflows share one building block —
-`actions/setup-python-env` (a **composite** action). It:
+The **reusable workflow itself** is the unit of reuse: a generated repo references
+`reusable-build/test/validate.yml@<ref>`, so editing the logic here updates **every**
+generated pipeline at once — the "fix once, benefit everyone" requirement.
 
-1. sets up Python (input `python-version`, default `3.12`) with pip caching,
-2. upgrades pip,
-3. installs the local package generically (`pip install ".[dev]"`, falling back
-   to `pip install .`) **only when** packaging metadata exists — no hard-coded
-   package name, so it works for any generated repo,
-4. installs the standard dev toolchain (`ruff black mypy pytest hypothesis`).
-
-Because build, test, and validate all `uses: ./.github/actions/setup-python-env`,
-a single edit to that composite action updates the environment for **every**
-generated pipeline at once. This is the concrete realisation of the "fix once,
-benefit everyone" requirement.
+An earlier version factored the Python setup into a local composite action that the
+three workflows called via `uses: ./.github/actions/setup-python-env`. **That is a
+trap for reusable workflows:** when a *remote* repo calls a reusable workflow, a
+`./`-relative action path resolves against the **caller's** checkout — which does not
+ship our composite — so every generated repo's CI failed to load before any step ran.
+The setup steps are therefore **inlined** into each reusable workflow, keeping them
+fully self-contained for remote callers. The reusable workflows remain the single
+shared edit point.
 
 ---
 
@@ -148,13 +146,14 @@ benefit everyone" requirement.
 The branch model is `main` / `dev` / `staging` with working branches
 `feature/` · `bug/` · `hotfix/`. It is enforced in two complementary places:
 
-- **Inline** in `reusable-validate.yml`: on `pull_request`, the head ref must
-  match `^(feature|bug|hotfix)/.+$` or be one of `main` / `dev` / `staging`;
-  otherwise the job fails with a clear message.
-- **Standalone & testable** in `scripts/check_branch_name.py`: the same rule as
-  a pure, typed Python utility. It reads a branch name from `argv[1]` or
-  `$GITHUB_HEAD_REF` and exits non-zero on a violation. Use it locally or unit
-  test `is_valid_branch_name(...)` directly:
+- **Inline** in `reusable-validate.yml` (the **enforced** gate): on `pull_request`,
+  the head ref must match `^(feature|bug|hotfix)/.+$` or be one of `main` / `dev` /
+  `staging`; otherwise the job fails. It is inlined (not a script call) for the same
+  remote-resolution reason as setup above — the caller repo does not ship our scripts.
+- **Reference utility** `scripts/check_branch_name.py`: the same rule as a pure, typed
+  Python function, for local pre-commit use and as the human-readable source of the
+  policy. It reads a branch name from `argv[1]` or `$GITHUB_HEAD_REF` and exits
+  non-zero on a violation:
 
   ```bash
   python .github/scripts/check_branch_name.py feature/ABC-123-add-widget   # exit 0

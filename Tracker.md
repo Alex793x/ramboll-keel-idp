@@ -66,6 +66,42 @@ Master execution tracker. Plan in `SPEC.md`. Per-area details in `tracker/<area>
 
 ---
 
+## Adversarial review & remediation (post-fleet)
+
+A 4-dimension adversarial verification workflow (25 agents) raised **21 findings**, each
+skeptically re-checked. Outcome:
+
+**Fixed (correctness/quality):**
+- **[blocker] Generated-repo CI was red** — reusable workflows used `uses: ./.github/actions/setup-python-env`,
+  which resolves against the *caller* repo (which lacks it). **Inlined** setup into each reusable
+  workflow (self-contained for remote callers); removed the composite action; corrected `.github/README.md`.
+- **[major] `branch-protection.json` durable record was promised but never written** — the **engine** now
+  always commits it (rendered from `manifest.repository.protect`); docs reconciled.
+- **[major] Tautological integration-test assertions** — `tests/python_service.rs` now asserts CODEOWNERS
+  owners + the reusable-workflow `uses:` ref **unconditionally**.
+- **[major] `GhCliProvider` hardcoded `default_branch:"main"`** — now uses `spec.default_branch`.
+- **[major] Hub had no submit-failure test** — added a Vitest case driving a 500 and asserting the
+  `role="alert"` banner + re-enabled submit (Vitest now 39).
+- **[minor] CODEOWNERS bare team slug invalid on a personal account** — owners are now the selected
+  users' `@github_login`s (always valid); the department is documented in a comment.
+- **[minor] `repo_exists` conflated not-found with auth/network errors** — only 404/"could not resolve"
+  is treated as absent; other failures surface as `KeelError::Github`.
+- **[minor] empty `?blueprint=` left the wizard unsubmittable** — coerced to the default in `new.tsx` + Wizard.
+- **[minor/nit] Hub a11y** — DepartmentStep uses native radios; load errors use `role="alert"`; name input
+  has `aria-describedby`.
+- **[nit] docs/labels** — `keel/v1`→`keel/v2` docstrings; step-5 event uses the actual branch; worker help
+  reworded; git-ci-governance skill regex aligned to the enforced rule.
+
+**Documented as known MVP limitations (not fixed — acceptable for the MVP):**
+- **D-07** Reusable-CI ref is `Alex793x/keel@main` (personal account, moving ref) — the test account
+  authorised for this build. Production: move to a Ramboll org + a version tag (`@v1`).
+- Re-running `initialize` for an existing repo does **not** reconcile a changed department/user
+  selection into CODEOWNERS (create/commit are skipped). Documented; reconciliation is future work.
+- `required_checks: [build, test, validate]` won't match GitHub's composed reusable-workflow check
+  contexts; only matters once protection is actually *enforced* (an org). Noted for the org rollout.
+
+---
+
 ## Decisions log
 
 - **D-01** Engine in **Rust** (6-crate workspace), hub in **TanStack Start** — per v2 directive;

@@ -14,7 +14,12 @@ interface NewSearch {
 
 export const Route = createFileRoute("/new")({
   validateSearch: (search: Record<string, unknown>): NewSearch => ({
-    blueprint: typeof search.blueprint === "string" ? search.blueprint : undefined,
+    // Coerce an empty/blank `?blueprint=` to undefined so the default applies (an empty
+    // string would otherwise survive `??` and leave the wizard permanently unsubmittable).
+    blueprint:
+      typeof search.blueprint === "string" && search.blueprint.trim().length > 0
+        ? search.blueprint
+        : undefined,
   }),
   component: NewProjectPage,
 });
@@ -45,7 +50,7 @@ function NewProjectPage() {
         Pick a department and owners, fill in the details, then initialize a
         standards-compliant repository.
       </p>
-      <Wizard blueprint={blueprint ?? "python-service"} />
+      <Wizard blueprint={blueprint || "python-service"} />
     </>
   );
 }

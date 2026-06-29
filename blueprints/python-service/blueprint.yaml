@@ -28,8 +28,8 @@ parameters:
     values: [rest-api, worker]
     default: rest-api
     help: >-
-      rest-api seeds a FastAPI health endpoint; worker seeds a background
-      worker entrypoint with no HTTP surface.
+      rest-api seeds a FastAPI health endpoint; worker leaves a documented place
+      to wire a background-worker entrypoint (no HTTP surface).
   - id: description
     title: Description
     type: string

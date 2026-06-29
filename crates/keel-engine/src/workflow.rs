@@ -108,7 +108,11 @@ pub(crate) fn run(
     );
 
     // ── Step 3: render ───────────────────────────────────────────────────────
-    let files = keel_blueprint::render(&manifest, &blueprint_dir, req)?;
+    let mut files = keel_blueprint::render(&manifest, &blueprint_dir, req)?;
+    // Durable governance record: always commit the intended branch-protection policy into the repo.
+    // Hosts cannot always *enforce* protection (e.g. personal accounts, where the `gh api` call is
+    // skipped), so the committed `branch-protection.json` is the authoritative record of intent.
+    files.push(branch_protection_file(&manifest)?);
     record!(3, Status::Done, format!("rendered {} file(s)", files.len()));
 
     // ── Step 4 + 5: create_repo + commit ─────────────────────────────────────
@@ -133,7 +137,7 @@ pub(crate) fn run(
         record!(
             5,
             Status::Done,
-            "one clean initial commit on main".to_owned()
+            format!("one clean initial commit on {branch}")
         );
         coords
     };
@@ -209,6 +213,18 @@ fn repo_spec(
         files,
         commit_message: "chore: scaffold from Keel python-service blueprint".to_owned(),
     }
+}
+
+/// Serialize the manifest's branch-protection policies into a committed `branch-protection.json`,
+/// the durable record of protection intent (whether or not the host enforces it).
+fn branch_protection_file(manifest: &Manifest) -> Result<keel_core::RenderedFile> {
+    let mut contents = serde_json::to_vec_pretty(&manifest.repository.protect)
+        .map_err(|e| keel_core::KeelError::Io(format!("serializing branch protection: {e}")))?;
+    contents.push(b'\n');
+    Ok(keel_core::RenderedFile {
+        path: "branch-protection.json".to_owned(),
+        contents,
+    })
 }
 
 /// Apply one protection policy (best-effort wrapper, so callers can ignore failures).

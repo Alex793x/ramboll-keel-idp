@@ -134,8 +134,10 @@ impl keel_core::RepoProvider for FakeProvider { /* … */ }
 `GhCliProvider::create_repo`: render→temp dir→`git init -b main`→commit→`gh repo create
 <owner>/<name> --private --source . --remote origin --push`; idempotent (if `gh repo view`
 succeeds, skip). `ensure_branches`: create+push `dev`,`staging`. `write_protection`: best-effort
-via `gh api` PUT branch protection (tolerate failure on personal repos → emit Skipped, also commit
-a `branch-protection.json` into the repo as the durable record).
+via `gh api` PUT branch protection (tolerate failure on personal repos; never aborts). The
+**durable record** of protection intent is a `branch-protection.json` that the **engine** always
+commits into the repo (`keel-engine` adds it to the rendered file set), independent of whether the
+host can enforce protection.
 
 ### 3.4 `keel-engine` — frozen public API
 ```rust

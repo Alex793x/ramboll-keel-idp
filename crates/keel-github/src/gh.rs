@@ -83,9 +83,25 @@ impl RepoProvider for GhCliProvider {
     fn repo_exists(&self, owner: &str, name: &str) -> Result<bool> {
         let slug = format!("{owner}/{name}");
         let cwd = std::env::current_dir().map_err(|e| KeelError::Io(e.to_string()))?;
-        // Existence check: exit 0 ⇒ exists; any non-zero ⇒ does not (don't treat as a hard error).
         let out = cmd::capture("gh", ["repo", "view", &slug], &cwd)?;
-        Ok(out.status.success())
+        if out.status.success() {
+            return Ok(true);
+        }
+        // Only a genuine "not found" means the repo is absent. Auth/network/rate-limit failures
+        // must NOT be silently classified as "absent" (that would make the workflow try to create an
+        // existing repo); surface them so the caller aborts with an actionable error.
+        let msg = cmd::describe(&out).to_lowercase();
+        let not_found = msg.contains("could not resolve to a repository")
+            || msg.contains("not found")
+            || msg.contains("404");
+        if not_found {
+            Ok(false)
+        } else {
+            Err(KeelError::Github(format!(
+                "`gh repo view {slug}` failed (not a not-found error): {}",
+                cmd::describe(&out)
+            )))
+        }
     }
 
     fn create_repo(&self, spec: &RepoSpec) -> Result<RepoCoordinates> {
@@ -115,8 +131,8 @@ impl RepoProvider for GhCliProvider {
             owner: spec.owner.clone(),
             name: spec.name.clone(),
             html_url,
-            default_branch: "main".to_owned(),
-            branches: vec!["main".to_owned()],
+            default_branch: spec.default_branch.clone(),
+            branches: vec![spec.default_branch.clone()],
         })
     }
 
@@ -170,8 +186,9 @@ impl RepoProvider for GhCliProvider {
 
     fn write_protection(&self, repo: &RepoCoordinates, policy: &ProtectionPolicy) -> Result<()> {
         // Best-effort: branch protection commonly fails on personal repos. The durable record is
-        // `branch-protection.json` committed inside the repo by the template, so we never fail the
-        // workflow here — on any error we log to stderr and return Ok(()).
+        // `branch-protection.json`, committed inside the repo by the engine (see keel-engine
+        // workflow::branch_protection_file), so we never fail the workflow here — on any error we log
+        // to stderr and return Ok(()).
         let cwd = match std::env::current_dir() {
             Ok(c) => c,
             Err(e) => {
