@@ -68,6 +68,12 @@ crates/
 ```
 
 ### 3.1 `keel-core` — the contract crate (Phase 0 writes this fully)
+
+Also hosts `keel_core::catalog` — the **single source of truth** for the mocked department/user
+catalog (`MockCatalog`, `DepartmentRecord`) and the pure selection→request resolver
+(`Selection`, `MockCatalog::resolve`). Both `keel-api` and `keel-cli` build a `Selection` and call
+`resolve`, so the HTTP and CLI paths never drift.
+
 ```rust
 // Domain
 pub struct Department { pub id: String, pub name: String, pub team_slug: String }
@@ -165,7 +171,9 @@ impl Engine {
 Implements the 8 ordered idempotent steps; catalog/audit persisted as JSON (no DB infra in MVP).
 
 ### 3.5 `keel-api` — HTTP contract (the hub consumes this)
-axum server, default `:8787`, permissive CORS for the hub dev origin.
+axum server, default `:8787`, permissive CORS for the hub dev origin. Split into cohesive modules —
+`state` (`AppState` + config), `dto` (wire shapes; `InitializeBody::to_selection`), `routes` (router +
+thin handlers + `scan_blueprints`) — with the catalog/resolution in `keel_core::catalog`.
 | Method · Path | Returns |
 | --- | --- |
 | `GET /api/health` | `{ "status": "ok" }` |

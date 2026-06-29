@@ -104,6 +104,13 @@ skeptically re-checked. Outcome:
 
 ## Decisions log
 
+- **D-08** Memtrace-driven coherence pass (style fingerprint + centrality). Extracted the duplicated
+  mock catalog + resolution from `keel-api`/`keel-cli` into `keel_core::catalog` (`MockCatalog`,
+  `Selection`, `resolve`); split the `keel-api` 657-line god-file into `state`/`dto`/`routes`.
+  Result: 0 `MockData` duplication; rust `try_op_share` 0.42→0.53; unwraps 126→112 (0 in production).
+  Style conventions recorded in agent memory ([[keel-rust-style-conventions]]).
+
+
 - **D-01** Engine in **Rust** (6-crate workspace), hub in **TanStack Start** — per v2 directive;
   aligns with whitepaper §4.1.
 - **D-02** GitHub I/O behind the `RepoProvider` trait. **`OctocrabProvider`** (typed `octocrab` SDK)

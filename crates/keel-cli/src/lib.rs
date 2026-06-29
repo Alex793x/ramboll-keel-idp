@@ -21,15 +21,9 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Context};
 use clap::{Args, Parser, Subcommand};
-use serde::Deserialize;
 
-use keel_core::{
-    Department, InitOutcome, InitRequest, ProgressEvent, RepoProvider, ServiceKind, User,
-};
+use keel_core::{InitOutcome, InitRequest, MockCatalog, ProgressEvent, RepoProvider, Selection};
 use keel_engine::Engine;
-
-/// Embedded copy of the canonical mock catalog, used when the runtime fixture is absent.
-const MOCK_DATA_EMBEDDED: &str = include_str!("../../../fixtures/mock-data.json");
 
 /// Default GitHub owner for new repos.
 pub const DEFAULT_OWNER: &str = "Alex793x";
@@ -141,122 +135,30 @@ impl InitArgs {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Mock data
+// Selection → InitRequest (delegates to the shared keel_core catalog)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A department record from `fixtures/mock-data.json`.
-#[derive(Debug, Clone, Deserialize)]
-pub struct DepartmentRecord {
-    pub id: String,
-    pub name: String,
-    pub team_slug: String,
-    #[serde(default)]
-    pub users: Vec<User>,
-}
-
-impl DepartmentRecord {
-    #[must_use]
-    pub fn department(&self) -> Department {
-        Department {
-            id: self.id.clone(),
-            name: self.name.clone(),
-            team_slug: self.team_slug.clone(),
-        }
-    }
-}
-
-/// Parsed mock catalog.
-#[derive(Debug, Clone, Deserialize)]
-pub struct MockData {
-    pub departments: Vec<DepartmentRecord>,
-}
-
-impl MockData {
-    /// Load the catalog: prefer `fixtures/mock-data.json` relative to CWD, else the embedded copy.
-    #[must_use]
-    pub fn load() -> Self {
-        let candidate = PathBuf::from("fixtures/mock-data.json");
-        if let Ok(raw) = std::fs::read_to_string(&candidate) {
-            if let Ok(data) = serde_json::from_str(&raw) {
-                return data;
-            }
-        }
-        Self::embedded()
-    }
-
-    /// Parse the compiled-in copy.
-    #[must_use]
-    pub fn embedded() -> Self {
-        serde_json::from_str(MOCK_DATA_EMBEDDED).expect("embedded mock-data.json is valid")
-    }
-
-    /// Parse from a raw JSON string (tests).
-    ///
-    /// # Errors
-    /// Surfaces the underlying `serde_json` error.
-    pub fn parse_json(raw: &str) -> serde_json::Result<Self> {
-        serde_json::from_str(raw)
-    }
-
-    #[must_use]
-    pub fn department(&self, id: &str) -> Option<&DepartmentRecord> {
-        self.departments.iter().find(|d| d.id == id)
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Pure resolution: args + catalog → InitRequest
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Resolve `InitArgs` against the catalog into a validated [`keel_core::InitRequest`].
+/// Resolve `InitArgs` against the shared mocked catalog into a validated [`InitRequest`].
 ///
-/// Pure (no I/O beyond reading the in-memory catalog), so it is fully unit-testable.
+/// The catalog and resolution logic live in [`keel_core::catalog`] (shared with the API), so this
+/// only maps CLI flags onto a [`Selection`] and delegates — the two entry points never drift.
 ///
 /// # Errors
-/// Returns a descriptive error if the department or any user id is unknown, no users are given,
-/// the service kind is invalid, or the request fails basic validation.
-pub fn resolve_request(data: &MockData, args: &InitArgs) -> anyhow::Result<InitRequest> {
-    let dept = data
-        .department(&args.department)
-        .ok_or_else(|| anyhow!("unknown department: {:?}", args.department))?;
-
-    if args.users.is_empty() {
-        return Err(anyhow!("at least one --users id is required"));
-    }
-
-    let mut users: Vec<User> = Vec::with_capacity(args.users.len());
-    for uid in &args.users {
-        let user = dept
-            .users
-            .iter()
-            .find(|u| &u.id == uid)
-            .cloned()
-            .ok_or_else(|| {
-                anyhow!(
-                    "unknown user id {uid:?} for department {:?}",
-                    args.department
-                )
-            })?;
-        users.push(user);
-    }
-
-    let service_kind: ServiceKind = args
-        .service_kind
-        .parse()
-        .with_context(|| format!("invalid service kind: {:?}", args.service_kind))?;
-
-    let req = InitRequest {
+/// Surfaces a validation error if the department/user is unknown, no users are given, the service
+/// kind is invalid, or the request fails basic validation.
+pub fn resolve_request(catalog: &MockCatalog, args: &InitArgs) -> anyhow::Result<InitRequest> {
+    let selection = Selection {
         project_name: args.project.clone(),
         blueprint: args.blueprint.clone(),
-        department: dept.department(),
-        users,
-        service_kind,
+        department_id: args.department.clone(),
+        user_ids: args.users.clone(),
+        service_kind: args.service_kind.clone(),
         description: args.description.clone(),
         author: args.author.clone(),
     };
-
-    req.validate_basic().map_err(|e| anyhow!(e.to_string()))?;
-    Ok(req)
+    catalog
+        .resolve(&selection)
+        .map_err(|e| anyhow!(e.to_string()))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -305,8 +207,8 @@ pub fn run_initialize(
 /// # Errors
 /// Any resolution or engine error (caller maps this to a non-zero exit code).
 pub fn execute_init(args: &InitArgs) -> anyhow::Result<InitOutcome> {
-    let data = MockData::load();
-    let req = resolve_request(&data, args)?;
+    let catalog = MockCatalog::load();
+    let req = resolve_request(&catalog, args)?;
     let engine = Engine::new(args.blueprints.clone(), args.owner.clone());
 
     let mut events: Vec<ProgressEvent> = Vec::new();
@@ -555,15 +457,12 @@ mod tests {
     }
 
     #[test]
-    fn embedded_mock_data_loads() {
-        let data = MockData::embedded();
-        assert!(data.department("platform-engineering").is_some());
-    }
+    fn resolve_request_maps_flags_to_selection_and_delegates() {
+        // The full resolution matrix lives in keel_core::catalog tests; here we only assert the CLI
+        // wiring: flags → Selection → catalog.resolve, for one valid and one invalid case.
+        let catalog = MockCatalog::embedded();
 
-    #[test]
-    fn resolve_valid() {
-        let data = MockData::embedded();
-        let args = init_args(&[
+        let ok = init_args(&[
             "keel-cli",
             "init",
             "--project",
@@ -579,42 +478,12 @@ mod tests {
             "--author",
             "a",
         ]);
-        let req = resolve_request(&data, &args).expect("valid");
+        let req = resolve_request(&catalog, &ok).expect("valid");
         assert_eq!(req.project_name, "invoicing-api");
-        assert_eq!(req.users.len(), 1);
         assert_eq!(req.users[0].github_login, "Alex793x");
         assert_eq!(req.department.team_slug, "platform-engineering");
-    }
 
-    #[test]
-    fn resolve_multiple_users_in_order() {
-        let data = MockData::embedded();
-        let args = init_args(&[
-            "keel-cli",
-            "init",
-            "--project",
-            "abc",
-            "--department",
-            "platform-engineering",
-            "--users",
-            "u-bo,u-alex",
-            "--service-kind",
-            "worker",
-            "--description",
-            "d",
-            "--author",
-            "a",
-        ]);
-        let req = resolve_request(&data, &args).expect("valid");
-        assert_eq!(req.users.len(), 2);
-        assert_eq!(req.users[0].id, "u-bo");
-        assert_eq!(req.users[1].id, "u-alex");
-    }
-
-    #[test]
-    fn resolve_unknown_department_errors() {
-        let data = MockData::embedded();
-        let args = init_args(&[
+        let bad = init_args(&[
             "keel-cli",
             "init",
             "--project",
@@ -630,76 +499,10 @@ mod tests {
             "--author",
             "a",
         ]);
-        let err = resolve_request(&data, &args).unwrap_err();
-        assert!(err.to_string().contains("department"));
-    }
-
-    #[test]
-    fn resolve_unknown_user_errors() {
-        let data = MockData::embedded();
-        let args = init_args(&[
-            "keel-cli",
-            "init",
-            "--project",
-            "abc",
-            "--department",
-            "platform-engineering",
-            "--users",
-            "u-ghost",
-            "--service-kind",
-            "rest-api",
-            "--description",
-            "d",
-            "--author",
-            "a",
-        ]);
-        let err = resolve_request(&data, &args).unwrap_err();
-        assert!(err.to_string().contains("user"));
-    }
-
-    #[test]
-    fn resolve_user_from_wrong_department_errors() {
-        // u-anya is in "buildings".
-        let data = MockData::embedded();
-        let args = init_args(&[
-            "keel-cli",
-            "init",
-            "--project",
-            "abc",
-            "--department",
-            "platform-engineering",
-            "--users",
-            "u-anya",
-            "--service-kind",
-            "rest-api",
-            "--description",
-            "d",
-            "--author",
-            "a",
-        ]);
-        assert!(resolve_request(&data, &args).is_err());
-    }
-
-    #[test]
-    fn resolve_bad_project_name_errors() {
-        let data = MockData::embedded();
-        let args = init_args(&[
-            "keel-cli",
-            "init",
-            "--project",
-            "Bad_Name",
-            "--department",
-            "platform-engineering",
-            "--users",
-            "u-alex",
-            "--service-kind",
-            "rest-api",
-            "--description",
-            "d",
-            "--author",
-            "a",
-        ]);
-        assert!(resolve_request(&data, &args).is_err());
+        assert!(resolve_request(&catalog, &bad)
+            .unwrap_err()
+            .to_string()
+            .contains("department"));
     }
 
     #[test]
@@ -724,7 +527,7 @@ mod tests {
     #[test]
     #[ignore = "depends on keel-engine + keel-blueprint bodies (parallel build)"]
     fn dry_run_smoke_with_fake_provider() {
-        let data = MockData::embedded();
+        let catalog = MockCatalog::embedded();
         let args = init_args(&[
             "keel-cli",
             "init",
@@ -742,7 +545,7 @@ mod tests {
             "tester",
             "--dry-run",
         ]);
-        let req = resolve_request(&data, &args).expect("valid");
+        let req = resolve_request(&catalog, &args).expect("valid");
         let engine = Engine::new(PathBuf::from("../../blueprints"), args.owner.clone());
         let provider = keel_github::FakeProvider::new();
         let mut events = Vec::new();
