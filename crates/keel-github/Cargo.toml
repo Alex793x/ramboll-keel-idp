@@ -1,6 +1,6 @@
 [package]
 name = "keel-github"
-description = "RepoProvider implementations: GhCliProvider (real, via gh + git) and FakeProvider (tests)."
+description = "RepoProvider implementations: OctocrabProvider (typed SDK), GhCliProvider (gh + git), LocalDirProvider, FakeProvider."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,6 +12,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 # Used by GhCliProvider (staging dir for `gh repo create --source`) and LocalDirProvider tests.
 tempfile = { workspace = true }
+# OctocrabProvider: typed GitHub SDK + a runtime to bridge its async API behind the sync trait.
+octocrab = { workspace = true }
+tokio = { workspace = true }
+base64 = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

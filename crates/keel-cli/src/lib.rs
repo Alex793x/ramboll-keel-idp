@@ -9,10 +9,11 @@
 //!               [--owner Alex793x] [--blueprints <dir>] [--local <dir>] [--dry-run]
 //! ```
 //!
-//! Provider selection:
+//! Provider selection (precedence top-to-bottom):
 //! - `--dry-run`      → [`keel_github::FakeProvider`] (no writes, no network)
 //! - `--local <dir>`  → [`keel_github::LocalDirProvider`] (real local git repo, no `gh`)
-//! - otherwise        → [`keel_github::GhCliProvider`] (real `gh`)
+//! - `--octocrab`     → [`keel_github::OctocrabProvider`] (typed SDK, token from `gh auth token`)
+//! - otherwise        → [`keel_github::GhCliProvider`] (real `gh` CLI)
 
 #![forbid(unsafe_code)]
 
@@ -104,6 +105,10 @@ pub struct InitArgs {
     /// Use the in-memory fake provider (no writes, no network).
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Create the repo via the typed octocrab SDK (auth from `gh auth token`) instead of the gh CLI.
+    #[arg(long)]
+    pub octocrab: bool,
 }
 
 /// Which provider the flags select.
@@ -113,6 +118,8 @@ pub enum ProviderChoice {
     Fake,
     /// `--local <dir>`
     Local(PathBuf),
+    /// `--octocrab` — typed octocrab SDK (token from `gh auth token`)
+    Octocrab,
     /// real `gh`
     GhCli,
 }
@@ -125,6 +132,8 @@ impl InitArgs {
             ProviderChoice::Fake
         } else if let Some(dir) = &self.local {
             ProviderChoice::Local(dir.clone())
+        } else if self.octocrab {
+            ProviderChoice::Octocrab
         } else {
             ProviderChoice::GhCli
         }
@@ -315,6 +324,11 @@ pub fn execute_init(args: &InitArgs) -> anyhow::Result<InitOutcome> {
             let provider = keel_github::LocalDirProvider::new(dir);
             run_initialize(&engine, &req, &provider, &mut sink)
         }
+        ProviderChoice::Octocrab => {
+            let provider =
+                keel_github::OctocrabProvider::from_gh().map_err(|e| anyhow!(e.to_string()))?;
+            run_initialize(&engine, &req, &provider, &mut sink)
+        }
         ProviderChoice::GhCli => {
             let provider = keel_github::GhCliProvider::new(args.owner.clone());
             run_initialize(&engine, &req, &provider, &mut sink)
@@ -492,6 +506,49 @@ mod tests {
             "a",
             "--local",
             "/tmp/out",
+            "--dry-run",
+        ]);
+        assert_eq!(args.provider_choice(), ProviderChoice::Fake);
+    }
+
+    #[test]
+    fn octocrab_flag_selects_octocrab_provider() {
+        let args = init_args(&[
+            "keel-cli",
+            "init",
+            "--project",
+            "abc",
+            "--department",
+            "x",
+            "--users",
+            "u",
+            "--service-kind",
+            "worker",
+            "--description",
+            "d",
+            "--author",
+            "a",
+            "--octocrab",
+        ]);
+        assert!(args.octocrab);
+        assert_eq!(args.provider_choice(), ProviderChoice::Octocrab);
+        // --dry-run still wins over --octocrab.
+        let args = init_args(&[
+            "keel-cli",
+            "init",
+            "--project",
+            "abc",
+            "--department",
+            "x",
+            "--users",
+            "u",
+            "--service-kind",
+            "worker",
+            "--description",
+            "d",
+            "--author",
+            "a",
+            "--octocrab",
             "--dry-run",
         ]);
         assert_eq!(args.provider_choice(), ProviderChoice::Fake);

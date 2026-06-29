@@ -123,15 +123,28 @@ Honor `template.conditions`. Inject `package_name` (= project_name `-`→`_`, ke
 
 ### 3.3 `keel-github` — frozen public API
 ```rust
+pub struct OctocrabProvider { /* typed octocrab SDK + a Tokio runtime */ }
+impl OctocrabProvider { pub fn new(token: String) -> Result<Self>; pub fn from_gh() -> Result<Self> }
+impl keel_core::RepoProvider for OctocrabProvider { /* … */ }
+
 pub struct GhCliProvider { pub owner: String }        // shells out to `gh` + `git`
 impl GhCliProvider { pub fn new(owner: String) -> Self }
 impl keel_core::RepoProvider for GhCliProvider { /* … */ }
 
+pub struct LocalDirProvider { /* writes a real local git repo, no network */ }
 pub struct FakeProvider { /* in-memory, for tests: records created repos, branches, files */ }
 impl FakeProvider { pub fn new() -> Self ; pub fn created(&self) -> Vec<RepoCoordinates> }
 impl keel_core::RepoProvider for FakeProvider { /* … */ }
 ```
-`GhCliProvider::create_repo`: render→temp dir→`git init -b main`→commit→`gh repo create
+**`OctocrabProvider` (the recommended/production provider, whitepaper Appendix A)** — typed
+`octocrab` SDK. `create_repo`: `POST /user/repos` (`auto_init:true` so the repo is not empty, which
+the Git Data API requires) → blobs → tree → **root commit (no parents)** → force-update the default
+ref, yielding exactly one clean commit. `ensure_branches`: create `dev`/`staging` refs from the
+default tip. `write_protection`: best-effort `PUT …/protection`. octocrab is async and the trait is
+sync, so the provider bridges via an owned Tokio runtime + `block_on`. Auth: a user access token —
+in the MVP `from_gh()` reads it from `gh auth token` (selected by the CLI's `--octocrab` flag).
+
+**`GhCliProvider`** (the gh-CLI alternative) `create_repo`: render→temp dir→`git init -b main`→commit→`gh repo create
 <owner>/<name> --private --source . --remote origin --push`; idempotent (if `gh repo view`
 succeeds, skip). `ensure_branches`: create+push `dev`,`staging`. `write_protection`: best-effort
 via `gh api` PUT branch protection (tolerate failure on personal repos; never aborts). The

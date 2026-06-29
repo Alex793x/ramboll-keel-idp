@@ -145,10 +145,11 @@ pub trait RepoProvider {
 ```
 
 `keel-engine` accepts a `&dyn RepoProvider` and never names a concrete implementation. There are
-(at least) three:
+four:
 
 | Implementation | Where | Behaviour |
 | --- | --- | --- |
+| **`OctocrabProvider`** | `keel-github` | The typed-SDK provider (whitepaper Appendix A), **recommended**. Uses `octocrab`: `POST /user/repos` (`auto_init:true`), then the Git Data API (blobs → tree → root commit → force-update ref) for one clean commit; `ensure_branches` creates `dev`/`staging` refs; `write_protection` best-effort. Async bridged behind the sync trait via an owned Tokio runtime. Auth from a user token (`gh auth token` in the MVP). Selected by `keel-cli --octocrab`. |
 | **`GhCliProvider`** | `keel-github` | Shells out to `gh` + `git`: `git init -b main` → commit → `gh repo create <owner>/<name> --private --source . --remote origin --push`. Idempotent: if `gh repo view` succeeds, creation is skipped. `ensure_branches` pushes `dev`/`staging`; `write_protection` is best-effort via `gh api` and never aborts on failure (e.g. personal repos). The durable record is a `branch-protection.json` that the **engine** always commits into the repo. |
 | **`FakeProvider`** | `keel-github` | In-memory: records created repos, branches, and files. No network. Exposes `created()` for assertions. |
 | **`LocalDir`** | via `keel-cli --local <dir>` | Materializes the rendered tree to a directory instead of GitHub. |

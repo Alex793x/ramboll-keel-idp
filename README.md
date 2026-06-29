@@ -56,7 +56,7 @@ The Rust workspace is six crates, each with a single responsibility and dependen
 | --- | --- |
 | `keel-core` | Domain types, the `RepoProvider` trait, errors. Dependency-light (serde, thiserror). |
 | `keel-blueprint` | Manifest load/validate + MiniJinja rendering of the template tree. |
-| `keel-github` | `RepoProvider` implementations: `GhCliProvider` (subprocess `gh`/`git`) + `FakeProvider`. |
+| `keel-github` | `RepoProvider` implementations: `OctocrabProvider` (typed SDK, recommended), `GhCliProvider` (subprocess `gh`/`git`), `LocalDirProvider`, `FakeProvider`. |
 | `keel-engine` | The 8-step idempotent workflow orchestrator + JSON catalog/audit. |
 | `keel-api` | axum HTTP server (default `:8787`) + mocked department/user data. |
 | `keel-cli` | Headless `init` driver — the deterministic E2E entry point. |
@@ -139,6 +139,7 @@ Useful flags:
 | Flag | Effect |
 | --- | --- |
 | `--owner <login>` | GitHub account/org the new repo is created under (default `Alex793x`). |
+| `--octocrab` | Create the repo through the typed **octocrab** SDK (auth from `gh auth token`) instead of the `gh` CLI. |
 | `--dry-run` | Use the in-memory `FakeProvider` — renders + records, creates **no** real repo. |
 | `--local <dir>` | Materialize the rendered tree to a local directory instead of GitHub. |
 

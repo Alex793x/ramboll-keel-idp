@@ -1,6 +1,9 @@
 //! # keel-github
 //!
 //! [`keel_core::RepoProvider`] implementations:
+//! - [`OctocrabProvider`] — the typed-SDK provider (whitepaper Appendix A). Creates the repo, pushes a
+//!   single clean commit via the Git Data API, creates `dev`/`staging`, and applies branch protection
+//!   (best-effort) — all through `octocrab`. Auth via a user token (from `gh auth token` in the MVP).
 //! - [`GhCliProvider`] — the real one. Renders to a temp dir, `git init -b main`, commits, and runs
 //!   `gh repo create <owner>/<name> --private --source . --remote origin --push`; then creates
 //!   `dev`/`staging` and (best-effort) applies branch protection via `gh api`. Idempotent.
@@ -24,9 +27,11 @@ use keel_core::{ProtectionPolicy, RenderedFile, RepoCoordinates, RepoProvider, R
 mod cmd;
 mod gh;
 mod local;
+mod octocrab_provider;
 
 pub use gh::GhCliProvider;
 pub use local::LocalDirProvider;
+pub use octocrab_provider::OctocrabProvider;
 
 // Re-exported so the integration-test / argv-helper surface is documented & testable.
 pub use gh::build_repo_create_argv;

@@ -106,8 +106,11 @@ skeptically re-checked. Outcome:
 
 - **D-01** Engine in **Rust** (6-crate workspace), hub in **TanStack Start** — per v2 directive;
   aligns with whitepaper §4.1.
-- **D-02** GitHub I/O behind the `RepoProvider` trait — `GhCliProvider` (real `gh`), `LocalDirProvider`
-  (hermetic local), `FakeProvider` (tests). octocrab + GitHub App is the documented production path.
+- **D-02** GitHub I/O behind the `RepoProvider` trait. **`OctocrabProvider`** (typed `octocrab` SDK)
+  is now implemented as the recommended/production-leaning provider (whitepaper Appendix A), selected
+  by `keel-cli --octocrab`; auth via `gh auth token` for the MVP (GitHub App is the future step).
+  Alongside it: `GhCliProvider` (real `gh`), `LocalDirProvider` (hermetic local), `FakeProvider` (tests).
+  Proven end-to-end: `Alex793x/keel-oct-6bde` created via the SDK with one clean commit + main/dev/staging.
 - **D-03** Departments + users **mocked** in `fixtures/mock-data.json`; selection drives CODEOWNERS.
 - **D-04** Catalog/audit persisted as **JSON** (no DB infra in MVP).
 - **D-05** Retained from v1 (validated): Python `blueprints/python-service/` + reusable `.github/`.

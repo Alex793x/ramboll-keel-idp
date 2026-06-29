@@ -18,8 +18,6 @@ This directory does **two** jobs for the Ramboll Developer Platform (RDP):
 
 ```
 .github/
-├── scripts/
-│   └── check_branch_name.py          # reference implementation of the branch-name rule (local/dev use)
 └── workflows/
     ├── ci.yml                        # Keel's OWN v2 CI: rust + hub + blueprint-is-software
     ├── reusable-build.yml            # on: workflow_call — build & import check  (generated repos)
@@ -144,18 +142,14 @@ shared edit point.
 ## Branch-name governance
 
 The branch model is `main` / `dev` / `staging` with working branches
-`feature/` · `bug/` · `hotfix/`. It is enforced in two complementary places:
+`feature/` · `bug/` · `hotfix/`. The rule: a PR head ref must match
+`^(feature|bug|hotfix)/.+$` (a non-empty descriptor after the prefix) or be one of
+the protected branches `main` / `dev` / `staging`.
 
-- **Inline** in `reusable-validate.yml` (the **enforced** gate): on `pull_request`,
-  the head ref must match `^(feature|bug|hotfix)/.+$` or be one of `main` / `dev` /
-  `staging`; otherwise the job fails. It is inlined (not a script call) for the same
-  remote-resolution reason as setup above — the caller repo does not ship our scripts.
-- **Reference utility** `scripts/check_branch_name.py`: the same rule as a pure, typed
-  Python function, for local pre-commit use and as the human-readable source of the
-  policy. It reads a branch name from `argv[1]` or `$GITHUB_HEAD_REF` and exits
-  non-zero on a violation:
-
-  ```bash
-  python .github/scripts/check_branch_name.py feature/ABC-123-add-widget   # exit 0
-  python .github/scripts/check_branch_name.py random-branch                # exit 1
-  ```
+It is enforced **inline** in `reusable-validate.yml`: on `pull_request`, the head
+ref is checked against that rule and the job fails otherwise. The check is inlined
+(a bash regex, not a call to a shared script) for the same remote-resolution reason
+as the setup steps above — a generated repo calls this workflow from its **own**
+checkout, which does not ship Keel's scripts, so a `./`-relative script path would
+not resolve. Inlining keeps the gate self-contained for every remote caller, while
+`reusable-validate.yml` stays the single shared edit point for the rule.
