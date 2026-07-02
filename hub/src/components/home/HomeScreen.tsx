@@ -6,7 +6,7 @@
  * in `home.css` (inline styles cannot express `:hover`). Data comes from the
  * shared `lib/hub-data` fixtures.
  */
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { color, font } from "../../design/tokens";
 import { useSession } from "../../hooks/useSession";
 import {
@@ -245,11 +245,15 @@ export function HomeScreen() {
   );
 }
 
-/** One card in the 2×2 "Your projects" grid (source lines 144–159). */
+/** One card in the 2×2 "Your projects" grid (source lines 144–159). Click → dashboard. */
 function HomeProjectCard({ project: p }: { project: HubProject }) {
+  const navigate = useNavigate();
   return (
     <div
       className="home-project-card"
+      onClick={() =>
+        void navigate({ to: "/projects/$projectId", params: { projectId: p.id } })
+      }
       style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}
     >
       <div

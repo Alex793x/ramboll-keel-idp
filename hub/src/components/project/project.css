@@ -1,0 +1,98 @@
+/*
+ * Project dashboard — hover/focus states + responsive grid (inline styles
+ * cannot express :hover or media queries). Hover values match the existing
+ * card idiom exactly (home.css / kb.css): border-color rgba(102,193,243,.45)
+ * and translateY(-2px), 150ms.
+ */
+
+/* Glass panels (base border lives here so :hover can override it). */
+.prj-panel {
+  border: 1px solid rgba(155, 173, 197, 0.14);
+  transition: border-color 150ms, transform 150ms;
+}
+.prj-panel:hover {
+  border-color: rgba(102, 193, 243, 0.45);
+  transform: translateY(-2px);
+}
+
+/* Back link — the KB back-link idiom (kb.css .kb-back). */
+.prj-back {
+  color: #66c1f3;
+  transition: color 120ms;
+  cursor: pointer;
+}
+.prj-back:hover {
+  color: #cceafb;
+}
+
+/* Header action pills. */
+.prj-action {
+  transition: border-color 150ms, background 150ms;
+}
+.prj-action:hover {
+  border-color: rgba(102, 193, 243, 0.5);
+  background: rgba(0, 152, 235, 0.12);
+}
+
+/* List rows (pipelines / activity / crew). */
+.prj-row {
+  transition: background 120ms;
+}
+.prj-row:hover {
+  background: rgba(204, 234, 251, 0.04);
+}
+
+/* Click-to-copy sha. */
+.prj-sha:hover {
+  color: #cceafb;
+}
+
+/* Retry button on the error card. */
+.prj-retry {
+  transition: background 150ms;
+}
+.prj-retry:hover {
+  background: #33adef;
+}
+
+/* Loading skeleton bars — pulsing glass, never a spinner. */
+.prj-skel-bar {
+  background: rgba(155, 173, 197, 0.14);
+  border-radius: 6px;
+  animation: pulseDot 1.6s ease-in-out infinite;
+}
+
+/* Three-column zone: Pipelines (1.2fr) · Activity (1fr) · sticky 300px rail. */
+.prj-columns {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 300px;
+  gap: 22px;
+  align-items: start;
+}
+.prj-sticky {
+  position: sticky;
+  top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* Collapse gracefully: two columns, rail below; then a single column. */
+@media (max-width: 1180px) {
+  .prj-columns {
+    grid-template-columns: 1fr 1fr;
+  }
+  .prj-sticky {
+    position: static;
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+}
+@media (max-width: 860px) {
+  .prj-columns,
+  .prj-sticky {
+    grid-template-columns: 1fr;
+  }
+}

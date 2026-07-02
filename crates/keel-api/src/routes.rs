@@ -25,6 +25,10 @@ pub fn app(state: AppState) -> Router {
         .route("/api/blueprints", get(blueprints))
         .route("/api/initialize", post(initialize))
         .route("/api/projects", get(projects))
+        .route(
+            "/api/projects/:id/overview",
+            get(crate::overview::project_overview),
+        )
         .layer(CorsLayer::permissive())
         .with_state(state)
 }

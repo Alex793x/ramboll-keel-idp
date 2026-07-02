@@ -15,6 +15,7 @@ import type {
   InitOutcome,
   InitializePayload,
   InitializeResponse,
+  ProjectOverview,
   User,
 } from "./types";
 
@@ -104,6 +105,13 @@ export class KeelApi {
   /** `GET /api/projects`. */
   listProjects(): Promise<InitOutcome[]> {
     return this.request<InitOutcome[]>("/api/projects");
+  }
+
+  /** `GET /api/projects/:id/overview` — the v4 project dashboard payload (SPEC §18.1). */
+  projectOverview(id: string): Promise<ProjectOverview> {
+    return this.request<ProjectOverview>(
+      `/api/projects/${encodeURIComponent(id)}/overview`,
+    );
   }
 
   /** `POST /api/initialize` with the wizard-built payload. */

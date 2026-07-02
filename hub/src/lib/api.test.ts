@@ -131,6 +131,42 @@ describe("KeelApi", () => {
     expect(JSON.parse(init.body as string)).toEqual(payload);
   });
 
+  it("GET /api/projects/:id/overview returns the parsed overview and encodes the id", async () => {
+    // A shape-faithful (if minimal) ProjectOverview body — the client passes it through untouched.
+    const overview = {
+      project: { id: "RMB-EN-042", name: "District Heating Optimizer" },
+      team: [],
+      branches: [],
+      runs: [],
+      commits: [],
+    };
+    // Fresh Response per call: a Response body can only be read once.
+    const fetchImpl = vi.fn().mockImplementation(async () => jsonResponse(overview));
+    const api = new KeelApi({ baseUrl: "http://api.test", fetchImpl });
+    await expect(api.projectOverview("RMB-EN-042")).resolves.toEqual(overview);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://api.test/api/projects/RMB-EN-042/overview",
+      expect.anything(),
+    );
+
+    await api.projectOverview("a b/c");
+    expect(fetchImpl).toHaveBeenLastCalledWith(
+      "http://api.test/api/projects/a%20b%2Fc/overview",
+      expect.anything(),
+    );
+  });
+
+  it("GET /api/projects/:id/overview throws ApiError(404) for unknown projects", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockImplementation(
+        async () => new Response(JSON.stringify({ error: "unknown project" }), { status: 404 }),
+      );
+    const api = new KeelApi({ baseUrl: "http://api.test", fetchImpl });
+    await expect(api.projectOverview("RMB-XX-999")).rejects.toBeInstanceOf(ApiError);
+    await expect(api.projectOverview("RMB-XX-999")).rejects.toMatchObject({ status: 404 });
+  });
+
   it("throws ApiError on a non-2xx response", async () => {
     // Fresh Response per call: a Response body can only be read once.
     const fetchImpl = vi

@@ -1,0 +1,113 @@
+/*
+ * BranchFlow hover/focus pseudo-states + transitions (SPEC §18.3).
+ * Class prefix: rdh-flow-. Keyframes referenced by name (fadeUp, popIn,
+ * pulseDot, ringPulse, edgeDraw) live in src/design/global.css — reused,
+ * never duplicated. Only flow-specific keyframes are defined here.
+ */
+
+/* Rail line entrance — a width scale-in matching the design's edgeDraw feel. */
+@keyframes rdhFlowRailIn {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* ── shared dim/ghost (the DocDiagram connect/dim feel: 180ms ease) ──────── */
+
+.rdh-flow-rail,
+.rdh-flow-connector,
+.rdh-flow-return {
+  transition: opacity 180ms ease;
+}
+
+.rdh-flow-dim {
+  opacity: 0.35;
+}
+
+/* Focus mode hides the non-focused connectors entirely (their geometry goes
+ * stale while a lane above them is expanded). */
+.rdh-flow-ghost {
+  opacity: 0;
+}
+
+/* ── tributary lanes ─────────────────────────────────────────────────────── */
+
+.rdh-flow-lane {
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+
+.rdh-flow-lane--lift {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(5, 50, 110, 0.35);
+  border-color: rgba(102, 193, 243, 0.45) !important;
+}
+
+.rdh-flow-lane:focus-visible,
+.rdh-flow-tribs:focus-visible {
+  outline: 2px solid rgba(0, 152, 235, 0.5);
+  outline-offset: 2px;
+}
+
+.rdh-flow-lanehead {
+  cursor: pointer;
+}
+
+/* ── focus-mode expansion: the 0fr → 1fr grid-rows trick ─────────────────── */
+
+.rdh-flow-detail {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 320ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.rdh-flow-lane--open .rdh-flow-detail {
+  grid-template-rows: 1fr;
+}
+
+.rdh-flow-detail-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── commit tick tooltips (glass card, pure CSS hover) ───────────────────── */
+
+.rdh-flow-tick {
+  cursor: default;
+}
+
+.rdh-flow-tick .rdh-flow-tip {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: max-content;
+  max-width: 240px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: rgba(10, 27, 51, 0.97);
+  border: 1px solid rgba(102, 193, 243, 0.28);
+  box-shadow: 0 10px 26px rgba(5, 50, 110, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease, transform 150ms ease;
+  z-index: 6;
+}
+
+.rdh-flow-tick:hover .rdh-flow-tip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.rdh-flow-tick:hover > .rdh-flow-tickdot {
+  transform: scale(1.35);
+}
+
+.rdh-flow-tickdot {
+  transition: transform 120ms ease;
+}

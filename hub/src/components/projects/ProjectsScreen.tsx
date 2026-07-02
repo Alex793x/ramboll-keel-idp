@@ -4,8 +4,10 @@
  *
  * A header row plus a six-column table card listing every onboarded project.
  * Row hover lives in `projects.css`; data comes from the shared
- * `lib/hub-data` fixtures.
+ * `lib/hub-data` fixtures. Clicking a row opens the project dashboard
+ * (`/projects/$projectId`, SPEC §18) — visuals are untouched.
  */
+import { useNavigate } from "@tanstack/react-router";
 import { color, font } from "../../design/tokens";
 import { PROJECTS, statusChipStyle, type HubProject } from "../../lib/hub-data";
 import "./projects.css";
@@ -95,11 +97,15 @@ export function ProjectsScreen() {
   );
 }
 
-/** One table row (source lines 205–215). */
+/** One table row (source lines 205–215). Click → the project dashboard. */
 function ProjectRow({ project: p }: { project: HubProject }) {
+  const navigate = useNavigate();
   return (
     <div
       className="projects-row"
+      onClick={() =>
+        void navigate({ to: "/projects/$projectId", params: { projectId: p.id } })
+      }
       style={{
         display: "grid",
         gridTemplateColumns: GRID_COLUMNS,
