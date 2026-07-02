@@ -49,6 +49,10 @@ impl InitializeBody {
             service_kind: self.service_kind.clone(),
             description: self.description.clone(),
             author: self.author.clone(),
+            // v3 body fields (`layout`, `services`) are wired by the API fleet area (SPEC §13);
+            // legacy bodies keep byte-identical behavior meanwhile.
+            layout: keel_core::RepoLayout::default(),
+            services: vec![],
         }
     }
 }

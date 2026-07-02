@@ -125,6 +125,8 @@ mod tests {
             service_kind: ServiceKind::RestApi,
             description: "Handles invoices.".into(),
             author: "Ada Lovelace".into(),
+            layout: keel_core::RepoLayout::default(),
+            services: vec![],
         }
     }
 

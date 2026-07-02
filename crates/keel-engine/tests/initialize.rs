@@ -46,6 +46,8 @@ fn sample_request(project: &str, kind: ServiceKind) -> InitRequest {
         service_kind: kind,
         description: "A fixture service for tests.".into(),
         author: "Alex <alex@ramboll.com>".into(),
+        layout: keel_core::RepoLayout::default(),
+        services: vec![],
     }
 }
 

@@ -39,6 +39,8 @@ fn sample_request() -> InitRequest {
         service_kind: ServiceKind::RestApi,
         description: "Handles invoices for the buildings division.".into(),
         author: "Ada Lovelace".into(),
+        layout: keel_core::RepoLayout::default(),
+        services: vec![],
     }
 }
 

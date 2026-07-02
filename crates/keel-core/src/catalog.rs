@@ -8,19 +8,45 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Department, InitRequest, KeelError, Result, ServiceKind, User};
+use crate::{
+    Department, InitRequest, KeelError, RepoLayout, Result, ServiceKind, ServiceSelection, User,
+};
 
 /// The canonical mocked catalog, embedded at build time (shared with the Hub and CLI).
 const EMBEDDED: &str = include_str!("../../../fixtures/mock-data.json");
 
-/// A department plus its users, as stored in `fixtures/mock-data.json`.
+/// A department (v3: one of the 7 Global Business Areas), as stored in `fixtures/mock-data.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DepartmentRecord {
     pub id: String,
     pub name: String,
     pub team_slug: String,
+    /// Legacy per-department users (v2 fixtures). v3 fixtures use the global `people` list.
     #[serde(default)]
     pub users: Vec<User>,
+}
+
+/// A global contributor (v3): a [`User`] plus their chapter (the design's PEOPLE list).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Person {
+    pub id: String,
+    pub name: String,
+    pub chapter: String,
+    pub email: String,
+    pub github_login: String,
+}
+
+impl Person {
+    /// The plain [`User`] view (what `InitRequest`/CODEOWNERS consume).
+    #[must_use]
+    pub fn user(&self) -> User {
+        User {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            email: self.email.clone(),
+            github_login: self.github_login.clone(),
+        }
+    }
 }
 
 impl DepartmentRecord {
@@ -39,6 +65,9 @@ impl DepartmentRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MockCatalog {
     pub departments: Vec<DepartmentRecord>,
+    /// Global contributors (v3). Empty ⇒ legacy fixtures resolving users per department.
+    #[serde(default)]
+    pub people: Vec<Person>,
 }
 
 impl MockCatalog {
@@ -74,6 +103,16 @@ impl MockCatalog {
         self.departments.iter().find(|d| d.id == id)
     }
 
+    /// Look up a contributor: v3 resolves from the **global** `people` list; when `people` is
+    /// empty (legacy fixtures) it falls back to the selected department's users.
+    fn find_user(&self, dept: &DepartmentRecord, uid: &str) -> Option<User> {
+        if self.people.is_empty() {
+            dept.users.iter().find(|u| u.id == uid).cloned()
+        } else {
+            self.people.iter().find(|p| p.id == uid).map(Person::user)
+        }
+    }
+
     /// Resolve a [`Selection`] against the catalog into a validated [`InitRequest`].
     ///
     /// Pure (no I/O) and the single shared resolution path for the API and the CLI.
@@ -94,17 +133,9 @@ impl MockCatalog {
 
         let mut users: Vec<User> = Vec::with_capacity(sel.user_ids.len());
         for uid in &sel.user_ids {
-            let user = dept
-                .users
-                .iter()
-                .find(|u| &u.id == uid)
-                .cloned()
-                .ok_or_else(|| {
-                    KeelError::Validation(format!(
-                        "unknown user_id {uid:?} for department {:?}",
-                        sel.department_id
-                    ))
-                })?;
+            let user = self
+                .find_user(dept, uid)
+                .ok_or_else(|| KeelError::Validation(format!("unknown user_id {uid:?}")))?;
             users.push(user);
         }
 
@@ -118,6 +149,8 @@ impl MockCatalog {
             service_kind,
             description: sel.description.clone(),
             author: sel.author.clone(),
+            layout: sel.layout,
+            services: sel.services.clone(),
         };
         req.validate_basic()?;
         Ok(req)
@@ -135,31 +168,53 @@ pub struct Selection {
     pub service_kind: String,
     pub description: String,
     pub author: String,
+    /// v3: monolith vs multi-repo (default multi-repo).
+    pub layout: RepoLayout,
+    /// v3: chosen service components. Empty ⇒ legacy single-service path.
+    pub services: Vec<ServiceSelection>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A valid selection against the embedded catalog (platform-engineering / u-alex).
+    /// A valid selection against the embedded v3 catalog (energy GBA / global u-alex).
     fn valid_selection() -> Selection {
         Selection {
             project_name: "invoicing-api".to_owned(),
             blueprint: "python-service".to_owned(),
-            department_id: "platform-engineering".to_owned(),
+            department_id: "energy".to_owned(),
             user_ids: vec!["u-alex".to_owned()],
             service_kind: "rest-api".to_owned(),
             description: "An invoicing service.".to_owned(),
             author: "Alex Holmberg".to_owned(),
+            layout: RepoLayout::default(),
+            services: vec![],
         }
     }
 
     #[test]
-    fn embedded_catalog_loads_and_is_populated() {
+    fn embedded_catalog_has_the_seven_gbas_and_global_people() {
         let cat = MockCatalog::embedded();
-        assert!(!cat.departments.is_empty());
-        assert!(cat.departments.iter().all(|d| !d.users.is_empty()));
-        assert!(cat.department("platform-engineering").is_some());
+        assert_eq!(cat.departments.len(), 7, "the 7 design GBAs");
+        for id in [
+            "energy",
+            "water",
+            "transport",
+            "buildings",
+            "environment-health",
+            "management-consulting",
+            "architecture-landscape",
+        ] {
+            assert!(cat.department(id).is_some(), "missing GBA {id}");
+        }
+        assert_eq!(
+            cat.people.len(),
+            11,
+            "10 design PEOPLE + the real E2E account"
+        );
+        assert!(cat.people.iter().any(|p| p.github_login == "Alex793x"));
+        assert!(cat.people.iter().all(|p| !p.chapter.is_empty()));
     }
 
     #[test]
@@ -167,23 +222,60 @@ mod tests {
         let cat = MockCatalog::embedded();
         let req = cat.resolve(&valid_selection()).expect("valid");
         assert_eq!(req.project_name, "invoicing-api");
-        assert_eq!(req.department.id, "platform-engineering");
+        assert_eq!(req.department.id, "energy");
         assert_eq!(req.users.len(), 1);
         assert_eq!(req.users[0].github_login, "Alex793x");
         assert_eq!(req.service_kind, ServiceKind::RestApi);
+        assert_eq!(req.layout, RepoLayout::MultiRepo);
+        assert!(req.services.is_empty());
     }
 
     #[test]
-    fn resolves_multiple_users_in_order() {
+    fn resolves_multiple_users_in_order_from_any_gba() {
+        // Contributors are GLOBAL in v3: any person resolves regardless of the chosen GBA.
         let cat = MockCatalog::embedded();
         let sel = Selection {
-            user_ids: vec!["u-alex".to_owned(), "u-bo".to_owned()],
+            department_id: "water".to_owned(),
+            user_ids: vec!["u-daniel".to_owned(), "u-alex".to_owned()],
             service_kind: "worker".to_owned(),
             ..valid_selection()
         };
         let req = cat.resolve(&sel).expect("valid");
         assert_eq!(req.users.len(), 2);
+        assert_eq!(req.users[0].id, "u-daniel");
+        assert_eq!(req.users[1].id, "u-alex");
         assert_eq!(req.service_kind, ServiceKind::Worker);
+    }
+
+    #[test]
+    fn resolves_v3_services_and_layout() {
+        let cat = MockCatalog::embedded();
+        let sel = Selection {
+            layout: RepoLayout::Monolith,
+            services: vec![
+                ServiceSelection::parse("api:python").unwrap(),
+                ServiceSelection::parse("fe:react").unwrap(),
+            ],
+            ..valid_selection()
+        };
+        let req = cat.resolve(&sel).expect("valid");
+        assert_eq!(req.layout, RepoLayout::Monolith);
+        assert_eq!(req.services.len(), 2);
+        assert_eq!(req.services[0].blueprint_name(), "api-python");
+    }
+
+    #[test]
+    fn legacy_fixture_without_people_resolves_users_per_department() {
+        let raw = r#"{"departments":[{"id":"x","name":"X","team_slug":"x","users":[
+            {"id":"u1","name":"A","email":"a@ramboll.com","github_login":"a"}]}]}"#;
+        let cat = MockCatalog::parse_json(raw).expect("parse");
+        let sel = Selection {
+            department_id: "x".to_owned(),
+            user_ids: vec!["u1".to_owned()],
+            ..valid_selection()
+        };
+        let req = cat.resolve(&sel).expect("legacy fallback resolves");
+        assert_eq!(req.users[0].github_login, "a");
     }
 
     #[test]
@@ -208,20 +300,6 @@ mod tests {
         let err = cat.resolve(&sel).unwrap_err();
         assert!(matches!(err, KeelError::Validation(_)));
         assert!(err.to_string().contains("user_id"));
-    }
-
-    #[test]
-    fn user_from_other_department_is_rejected() {
-        // u-anya belongs to "buildings", not "platform-engineering".
-        let cat = MockCatalog::embedded();
-        let sel = Selection {
-            user_ids: vec!["u-anya".to_owned()],
-            ..valid_selection()
-        };
-        assert!(matches!(
-            cat.resolve(&sel).unwrap_err(),
-            KeelError::Validation(_)
-        ));
     }
 
     #[test]

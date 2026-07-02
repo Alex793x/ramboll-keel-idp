@@ -57,7 +57,21 @@ async fn departments(State(state): State<AppState>) -> Json<Vec<DepartmentDto>> 
 
 async fn department_users(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match state.data.department(&id) {
-        Some(dept) => Json(dept.users.clone()).into_response(),
+        // v3: contributors are org-global (SPEC §11). A department's "users" are the global
+        // people (mapped to the plain User shape); legacy fixtures fall back to per-dept users.
+        Some(dept) => {
+            if state.data.people.is_empty() {
+                Json(dept.users.clone()).into_response()
+            } else {
+                let users: Vec<keel_core::User> = state
+                    .data
+                    .people
+                    .iter()
+                    .map(keel_core::Person::user)
+                    .collect();
+                Json(users).into_response()
+            }
+        }
         None => (
             StatusCode::NOT_FOUND,
             Json(json!({ "error": format!("unknown department: {id:?}") })),
@@ -195,12 +209,13 @@ mod tests {
         let first = &arr[0];
         assert!(first.get("id").is_some() && first.get("team_slug").is_some());
         assert!(first.get("users").is_none(), "users must not leak");
-        assert!(arr.iter().any(|d| d["id"] == "platform-engineering"));
+        assert!(arr.iter().any(|d| d["id"] == "energy"));
+        assert_eq!(arr.len(), 7, "the 7 design GBAs");
     }
 
     #[tokio::test]
     async fn department_users_ok() {
-        let resp = get("/api/departments/platform-engineering/users").await;
+        let resp = get("/api/departments/energy/users").await;
         assert_eq!(resp.status(), StatusCode::OK);
         let arr = body_json(resp).await;
         let arr = arr.as_array().expect("array");

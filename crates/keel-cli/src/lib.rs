@@ -60,7 +60,7 @@ pub struct InitArgs {
     #[arg(long)]
     pub project: String,
 
-    /// Department id from the mock catalog (e.g. `platform-engineering`).
+    /// Department id from the mock catalog (e.g. `energy`).
     #[arg(long)]
     pub department: String,
 
@@ -155,6 +155,10 @@ pub fn resolve_request(catalog: &MockCatalog, args: &InitArgs) -> anyhow::Result
         service_kind: args.service_kind.clone(),
         description: args.description.clone(),
         author: args.author.clone(),
+        // v3 flags (--layout / --services) are wired by the API/CLI fleet area (SPEC §13);
+        // the legacy path stays byte-identical meanwhile.
+        layout: keel_core::RepoLayout::default(),
+        services: vec![],
     };
     catalog
         .resolve(&selection)
@@ -282,7 +286,7 @@ mod tests {
             "--project",
             "invoicing-api",
             "--department",
-            "platform-engineering",
+            "energy",
             "--users",
             "u-alex,u-bo",
             "--service-kind",
@@ -293,7 +297,7 @@ mod tests {
             "Alex Holmberg",
         ]);
         assert_eq!(args.project, "invoicing-api");
-        assert_eq!(args.department, "platform-engineering");
+        assert_eq!(args.department, "energy");
         assert_eq!(args.users, vec!["u-alex", "u-bo"]);
         assert_eq!(args.service_kind, "rest-api");
         assert_eq!(args.blueprint, "python-service"); // default
@@ -468,7 +472,7 @@ mod tests {
             "--project",
             "invoicing-api",
             "--department",
-            "platform-engineering",
+            "energy",
             "--users",
             "u-alex",
             "--service-kind",
@@ -481,7 +485,7 @@ mod tests {
         let req = resolve_request(&catalog, &ok).expect("valid");
         assert_eq!(req.project_name, "invoicing-api");
         assert_eq!(req.users[0].github_login, "Alex793x");
-        assert_eq!(req.department.team_slug, "platform-engineering");
+        assert_eq!(req.department.team_slug, "energy");
 
         let bad = init_args(&[
             "keel-cli",
@@ -534,7 +538,7 @@ mod tests {
             "--project",
             "smoke-test",
             "--department",
-            "platform-engineering",
+            "energy",
             "--users",
             "u-alex",
             "--service-kind",

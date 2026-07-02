@@ -240,6 +240,8 @@ mod tests {
             service_kind: kind,
             description: "Handles invoices.".into(),
             author: "Ada".into(),
+            layout: keel_core::RepoLayout::default(),
+            services: vec![],
         }
     }
 

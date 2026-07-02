@@ -94,15 +94,17 @@ mod tests {
     use tempfile::TempDir;
 
     fn outcome(owner: &str, name: &str) -> InitOutcome {
+        let repo = RepoCoordinates {
+            owner: owner.into(),
+            name: name.into(),
+            html_url: format!("https://github.com/{owner}/{name}"),
+            default_branch: "main".into(),
+            branches: vec!["main".into()],
+        };
         InitOutcome {
             project: name.into(),
-            repo: RepoCoordinates {
-                owner: owner.into(),
-                name: name.into(),
-                html_url: format!("https://github.com/{owner}/{name}"),
-                default_branch: "main".into(),
-                branches: vec!["main".into()],
-            },
+            repos: vec![repo.clone()],
+            repo,
             docs_path: format!("{name}/docs"),
             blueprint_version: "1.0.0".into(),
             catalog_id: catalog_id(owner, name),

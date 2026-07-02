@@ -15,7 +15,14 @@ use serde::{Deserialize, Serialize};
 /// Mocked department/user catalog (MVP) + selection→[`InitRequest`] resolution, shared by the API
 /// and CLI so the two resolution paths never drift.
 pub mod catalog;
-pub use catalog::{DepartmentRecord, MockCatalog, Selection};
+pub use catalog::{DepartmentRecord, MockCatalog, Person, Selection};
+
+/// v3 multi-service domain: layouts, service selections, naming, `keel.services.json` (SPEC §11).
+pub mod service;
+pub use service::{
+    service_dirs, service_repo_names, RepoLayout, ServiceEntry, ServiceSelection, ServiceType,
+    ServicesManifest,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Domain
@@ -73,6 +80,11 @@ impl std::str::FromStr for ServiceKind {
 }
 
 /// The validated form a developer submits — the single input to initialization.
+///
+/// v3 (SPEC §11): `layout` + `services` are additive. When `services` is **empty** the request is
+/// the legacy single-service path (`blueprint` + `service_kind`), byte-for-byte v2 behavior. When
+/// `services` is non-empty the engine resolves each selection to `blueprints/services/{tag}-{lang}`
+/// and materializes them per `layout`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InitRequest {
     pub project_name: String,
@@ -83,6 +95,12 @@ pub struct InitRequest {
     pub service_kind: ServiceKind,
     pub description: String,
     pub author: String,
+    /// Monolith vs multi-repo (v3). Defaults to multi-repo; irrelevant on the legacy path.
+    #[serde(default)]
+    pub layout: RepoLayout,
+    /// Selected service components (v3). Empty ⇒ legacy single-service path.
+    #[serde(default)]
+    pub services: Vec<ServiceSelection>,
 }
 
 /// Validation regex for project names (also enforced by the blueprint manifest).
@@ -105,9 +123,27 @@ impl InitRequest {
                 "at least one owning user must be selected".to_owned(),
             ));
         }
+        if self.services.len() > MAX_SERVICES {
+            return Err(KeelError::Validation(format!(
+                "at most {MAX_SERVICES} service components per project (got {})",
+                self.services.len()
+            )));
+        }
+        for s in &self.services {
+            if !service::is_valid_language_slug(&s.language) {
+                return Err(KeelError::Validation(format!(
+                    "invalid language slug {:?} for service type {:?}",
+                    s.language,
+                    s.service_type.tag()
+                )));
+            }
+        }
         Ok(())
     }
 }
+
+/// Upper bound on service components per project (keeps repo fan-out and CI matrices sane).
+pub const MAX_SERVICES: usize = 12;
 
 /// Pure check of the project-name rule (no regex dependency, so `keel-core` stays light).
 #[must_use]
@@ -212,7 +248,12 @@ pub struct RepoCoordinates {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InitOutcome {
     pub project: String,
+    /// The primary repository (first created). Kept for v2 compatibility.
     pub repo: RepoCoordinates,
+    /// v3: every repository created for this project (multi-repo ⇒ one per service;
+    /// monolith/legacy ⇒ exactly one, equal to `repo`).
+    #[serde(default)]
+    pub repos: Vec<RepoCoordinates>,
     pub docs_path: String,
     pub blueprint_version: String,
     pub catalog_id: String,

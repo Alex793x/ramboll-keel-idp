@@ -133,7 +133,7 @@ jobs:
           # lands at "$RUNNER_TEMP/out/ci-check".
           cargo run -p keel-cli -- init \
             --project ci-check \
-            --department platform-engineering \
+            --department energy \
             --users u-alex \
             --service-kind rest-api \
             --description "CI render check" \

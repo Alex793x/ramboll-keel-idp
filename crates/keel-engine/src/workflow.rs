@@ -187,6 +187,7 @@ pub(crate) fn run(
     // that, so `list_projects` round-trips what `initialize` returns.
     let outcome = InitOutcome {
         project: name.clone(),
+        repos: vec![repo.clone()],
         repo,
         docs_path: format!("{name}/docs"),
         blueprint_version: manifest.version.clone(),
