@@ -13,6 +13,7 @@
 //! - `POST /api/initialize` → `{ events: [ProgressEvent], outcome: InitOutcome }` — the body
 //!   optionally carries v3 `layout` + `services`; legacy v2 bodies behave byte-identically
 //! - `GET  /api/projects` → `[InitOutcome]`
+//! - `GET  /api/projects/:id/overview` → the SPEC §18 project-dashboard document (200 | 404)
 //!
 //! Layout (each module has one job, keeping coupling low):
 //! - [`state`] — [`AppState`] + config defaults.
@@ -25,11 +26,16 @@
 #![forbid(unsafe_code)]
 
 mod dto;
+mod overview;
 mod routes;
 mod state;
 
 pub use dto::{
     BlueprintDto, DepartmentDto, InitializeBody, InitializeResponse, ServiceLangDto, ServiceTypeDto,
+};
+pub use overview::{
+    overview, AuthorDto, BranchCommitDto, BranchDto, FeedCommitDto, PersonDto, PrDto,
+    ProjectInfoDto, ProjectOverviewDto, RepoDto, RunDto, ServiceDto, TeamMemberDto, TipDto,
 };
 pub use routes::{app, scan_blueprints, scan_service_catalog};
 pub use state::{AppState, DEFAULT_ADDR, DEFAULT_BLUEPRINTS_DIR, DEFAULT_OWNER};

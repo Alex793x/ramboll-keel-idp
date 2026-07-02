@@ -157,6 +157,23 @@ Env bugs fixed in integration: Node 26's broken global `localStorage` shadowing 
 
 ---
 
+## v4 — Project dashboard (`/projects/:id`)
+
+**Status: ✅ complete** — 3 fleets (SPEC §18), all episodes class A. Details in
+`tracker/{overview-api,project-page,branch-flow}.md`.
+
+| Area | Delivered | Verified |
+| --- | --- | --- |
+| Overview API | `GET /api/projects/:id/overview` — pure deterministic generator (FNV-1a→xorshift, no new deps); 6 seeded projects byte-equal to hub rows; real catalog rows merge real repos/versions | 25 keel-api tests incl. proptest pinning every §18.2 invariant; 404 path |
+| Dashboard | header/provenance, Pipelines (running-first, ticking elapsed), Activity (day-grouped, cc-badges, copy sha), Crew (owners-first, active branch), Day one (clone/docs/skills/branch rule/CODEOWNERS) | 45 new tests; live in-browser against the real API |
+| **BranchFlow** | the novel centerpiece: main/staging/dev rails + tributaries with bezier fork/PR-return connectors, commit ticks, CI pulses, hover lift/dim, in-place focus mode, roving keyboard focus, full aria | 34 tests (11 fast-check properties); focus-mode + zero overflow + zero console errors verified in a real browser |
+
+Bonus: the BranchFlow agent's property run exposed a **real prototype-pollution bug** in
+`wizard-model.ts` (`LANG_SLUGS["constructor"]` resolved `Object.prototype.constructor`) — fixed with
+an own-property guard + pinned regression test; the formerly flaky suite is 6/6 stable.
+
+---
+
 ## Decisions log
 
 - **D-08** Memtrace-driven coherence pass (style fingerprint + centrality). Extracted the duplicated

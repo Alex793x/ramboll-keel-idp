@@ -611,6 +611,18 @@ describe('buildInitializePayload', () => {
       }),
     );
   });
+
+  it('regression: prototype-member display names slugify instead of resolving Object.prototype', () => {
+    // fast-check found this: LANG_SLUGS["constructor"] resolved to Function via the
+    // prototype chain, leaking a function as the lang. Pin the own-property guard.
+    for (const hostile of ['constructor', 'toString', 'valueOf', 'hasOwnProperty']) {
+      const state = baseState({ services: [{ type: 'api', lang: hostile }] });
+      for (const sv of buildInitializePayload(state).services) {
+        expect(typeof sv.lang).toBe('string');
+        expect(sv.lang).toMatch(SLUG_RE);
+      }
+    }
+  });
 });
 
 describe('serviceDir / monolithRepo / blueprintRepoLine', () => {

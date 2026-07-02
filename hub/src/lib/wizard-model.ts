@@ -309,7 +309,12 @@ export const LANG_SLUGS: Readonly<Record<string, string>> = {
 };
 
 function langSlugFallback(displayName: string): string {
-  return LANG_SLUGS[displayName] ?? slugOf(displayName);
+  // Own-property guard: a plain-object lookup would resolve prototype members for
+  // display names like "constructor"/"toString" (returning a Function, not a slug) —
+  // found by the fast-check property over arbitrary display names.
+  return Object.hasOwn(LANG_SLUGS, displayName)
+    ? (LANG_SLUGS[displayName] as string)
+    : slugOf(displayName);
 }
 
 /**

@@ -29,3 +29,4 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 tower = "0.5"
+proptest = { workspace = true }

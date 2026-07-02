@@ -1065,6 +1065,7 @@ dependencies = [
  "keel-core",
  "keel-engine",
  "keel-github",
+ "proptest",
  "serde",
  "serde_json",
  "tokio",
