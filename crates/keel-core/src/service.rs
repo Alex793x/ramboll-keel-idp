@@ -5,6 +5,12 @@
 //! a service type appearing **once** gets no ordinal (`{slug}-{tag}`); a type appearing `k > 1`
 //! times gets 1-based ordinals in selection order (`{slug}-{tag}-1` … `-{k}`). Monolith service
 //! directories follow the same rule without the slug prefix (`{tag}` / `{tag}-{n}`).
+//!
+//! v5 (SPEC §19.1): a selection may carry an explicit `name`. [`resolve_service_names`] is the
+//! single naming chokepoint — explicit names win verbatim; unnamed entries keep the v4 ordinal
+//! defaults counted **among unnamed entries of that type only**; any duplicate in the final name
+//! set is a [`KeelError::Validation`]. With no names given, the output is byte-identical to the
+//! v4 ordinals (property-pinned below).
 
 use serde::{Deserialize, Serialize};
 
@@ -110,7 +116,8 @@ impl std::str::FromStr for ServiceType {
     }
 }
 
-/// One chosen service component: a type plus a language slug (e.g. `api` + `python`).
+/// One chosen service component: a type plus a language slug (e.g. `api` + `python`), and
+/// optionally (v5) an explicit component name (e.g. `ingest`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServiceSelection {
     #[serde(rename = "type")]
@@ -118,19 +125,29 @@ pub struct ServiceSelection {
     /// Language slug: react|vue|blazor|dotnet|python|node|go|dbt|spark|terraform|bicep.
     #[serde(rename = "lang")]
     pub language: String,
+    /// v5 explicit component name (SPEC §19.1). `None` ⇒ the v4 ordinal default. Additive:
+    /// old payloads deserialize to `None` and old-shaped payloads serialize byte-identically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 impl ServiceSelection {
-    /// Parse the CLI form `"{type}:{lang}"`, e.g. `"api:python"`.
+    /// Parse the CLI form `"{type}:{lang}"` or `"{type}:{lang}:{name}"`, e.g. `"api:python"`
+    /// or `"api:python:ingest"`.
     ///
     /// # Errors
-    /// [`KeelError::Validation`] on a malformed pair, unknown type, or invalid language slug.
+    /// [`KeelError::Validation`] on a malformed entry, unknown type, invalid language slug, or
+    /// invalid service name.
     pub fn parse(s: &str) -> Result<Self> {
-        let (t, lang) = s.split_once(':').ok_or_else(|| {
-            KeelError::Validation(format!(
-                "invalid service {s:?} (expected \"type:lang\", e.g. \"api:python\")"
-            ))
-        })?;
+        let mut parts = s.splitn(3, ':');
+        let t = parts.next().unwrap_or_default();
+        let Some(lang) = parts.next() else {
+            return Err(KeelError::Validation(format!(
+                "invalid service {s:?} (expected \"type:lang\" or \"type:lang:name\", \
+                 e.g. \"api:python\" or \"api:python:ingest\")"
+            )));
+        };
+        let name = parts.next();
         let service_type: ServiceType = t.trim().parse()?;
         let language = lang.trim().to_owned();
         if !is_valid_language_slug(&language) {
@@ -138,9 +155,23 @@ impl ServiceSelection {
                 "invalid language slug {language:?} (lowercase [a-z0-9-], non-empty)"
             )));
         }
+        let name = match name {
+            Some(n) => {
+                let n = n.trim().to_owned();
+                if !is_valid_service_name(&n) {
+                    return Err(KeelError::Validation(format!(
+                        "invalid service name {n:?} (expected {SERVICE_NAME_PATTERN}, \
+                         no trailing hyphen)"
+                    )));
+                }
+                Some(n)
+            }
+            None => None,
+        };
         Ok(Self {
             service_type,
             language,
+            name,
         })
     }
 
@@ -161,41 +192,109 @@ pub fn is_valid_language_slug(s: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-/// Per-selection name suffixes implementing the shared ordinal rule (see module docs).
-fn ordinal_suffixes(services: &[ServiceSelection]) -> Vec<String> {
-    let mut totals: std::collections::HashMap<ServiceType, u32> = std::collections::HashMap::new();
-    for s in services {
-        *totals.entry(s.service_type).or_default() += 1;
+/// The v5 service-name slug rule (SPEC §19.1), shared with the hub's `SERVICE_NAME_RE`.
+pub const SERVICE_NAME_PATTERN: &str = "^[a-z][a-z0-9-]{1,29}$";
+
+/// Service names match [`SERVICE_NAME_PATTERN`] (2..=30 chars, lowercase start, `[a-z0-9-]`
+/// tail) with no trailing hyphen. Pure check — no regex dependency, mirroring
+/// [`is_valid_language_slug`].
+#[must_use]
+pub fn is_valid_service_name(s: &str) -> bool {
+    let len = s.chars().count();
+    if !(2..=30).contains(&len) || s.ends_with('-') {
+        return false;
     }
-    let mut seen: std::collections::HashMap<ServiceType, u32> = std::collections::HashMap::new();
-    services
-        .iter()
-        .map(|s| {
-            let n = seen.entry(s.service_type).or_default();
-            *n += 1;
-            let tag = s.service_type.tag();
-            if totals[&s.service_type] > 1 {
-                format!("{tag}-{n}")
-            } else {
-                tag.to_owned()
+    let mut chars = s.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_lowercase()
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// Resolve the final component name of every selection — the single v5 naming chokepoint
+/// (SPEC §19.1).
+///
+/// - An explicit `name` wins verbatim (validated against [`is_valid_service_name`]).
+/// - Unnamed entries get the v4 ordinal defaults (`{tag}` / `{tag}-{n}`), counted **among
+///   unnamed entries of that type only** — so with no names given, the output is byte-identical
+///   to the v4 ordinals.
+///
+/// # Errors
+/// [`KeelError::Validation`] on an invalid explicit name, or when the *final* name set contains
+/// a duplicate (the message names the collision).
+pub fn resolve_service_names(services: &[ServiceSelection]) -> Result<Vec<String>> {
+    for s in services {
+        if let Some(name) = &s.name {
+            if !is_valid_service_name(name) {
+                return Err(KeelError::Validation(format!(
+                    "invalid service name {name:?} (expected {SERVICE_NAME_PATTERN}, \
+                     no trailing hyphen)"
+                )));
             }
-        })
-        .collect()
+        }
+    }
+
+    // Ordinal totals over UNNAMED entries per type only (explicit names never consume ordinals).
+    let mut unnamed_totals: std::collections::HashMap<ServiceType, u32> =
+        std::collections::HashMap::new();
+    for s in services.iter().filter(|s| s.name.is_none()) {
+        *unnamed_totals.entry(s.service_type).or_default() += 1;
+    }
+
+    let mut seen: std::collections::HashMap<ServiceType, u32> = std::collections::HashMap::new();
+    let mut names: Vec<String> = Vec::with_capacity(services.len());
+    for s in services {
+        let name = match &s.name {
+            Some(explicit) => explicit.clone(),
+            None => {
+                let n = seen.entry(s.service_type).or_default();
+                *n += 1;
+                let tag = s.service_type.tag();
+                if unnamed_totals.get(&s.service_type).copied().unwrap_or(0) > 1 {
+                    format!("{tag}-{n}")
+                } else {
+                    tag.to_owned()
+                }
+            }
+        };
+        names.push(name);
+    }
+
+    // Any duplicate in the FINAL set is a validation error naming the collision.
+    let mut first_index: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (i, name) in names.iter().enumerate() {
+        if let Some(&j) = first_index.get(name.as_str()) {
+            return Err(KeelError::Validation(format!(
+                "duplicate service name {name:?} (service #{} collides with service #{})",
+                j + 1,
+                i + 1
+            )));
+        }
+        first_index.insert(name.as_str(), i);
+    }
+    Ok(names)
 }
 
-/// Repo names for a multi-repo project: `{slug}-{tag}` or `{slug}-{tag}-{n}` per the ordinal rule.
-#[must_use]
-pub fn service_repo_names(slug: &str, services: &[ServiceSelection]) -> Vec<String> {
-    ordinal_suffixes(services)
+/// Repo names for a multi-repo project: `{slug}-{name}` per [`resolve_service_names`]
+/// (`{slug}-{tag}` / `{slug}-{tag}-{n}` when no explicit names are given — the v4 rule).
+///
+/// # Errors
+/// Propagates [`resolve_service_names`] validation errors (invalid or duplicate names).
+pub fn service_repo_names(slug: &str, services: &[ServiceSelection]) -> Result<Vec<String>> {
+    Ok(resolve_service_names(services)?
         .into_iter()
-        .map(|sfx| format!("{slug}-{sfx}"))
-        .collect()
+        .map(|name| format!("{slug}-{name}"))
+        .collect())
 }
 
-/// Monolith `services/` directory names: `{tag}` or `{tag}-{n}` per the ordinal rule.
-#[must_use]
-pub fn service_dirs(services: &[ServiceSelection]) -> Vec<String> {
-    ordinal_suffixes(services)
+/// Monolith `services/` directory names per [`resolve_service_names`] (`{tag}` / `{tag}-{n}`
+/// when no explicit names are given — the v4 rule).
+///
+/// # Errors
+/// Propagates [`resolve_service_names`] validation errors (invalid or duplicate names).
+pub fn service_dirs(services: &[ServiceSelection]) -> Result<Vec<String>> {
+    resolve_service_names(services)
 }
 
 /// The default single-service selection for a bare init (no explicit `services`): the legacy
@@ -211,6 +310,7 @@ pub fn default_services(service_kind: crate::ServiceKind) -> Vec<ServiceSelectio
     vec![ServiceSelection {
         service_type,
         language: "python".to_owned(),
+        name: None,
     }]
 }
 
@@ -256,10 +356,13 @@ impl ServicesManifest {
         ]
     }
 
-    /// Build the manifest for a project's selections (dirs follow the shared ordinal rule).
-    #[must_use]
-    pub fn new(project: &str, services: &[ServiceSelection]) -> Self {
-        let dirs = service_dirs(services);
+    /// Build the manifest for a project's selections (dirs follow the shared naming rule —
+    /// explicit v5 names win, otherwise the v4 ordinals).
+    ///
+    /// # Errors
+    /// Propagates [`resolve_service_names`] validation errors (invalid or duplicate names).
+    pub fn new(project: &str, services: &[ServiceSelection]) -> Result<Self> {
+        let dirs = service_dirs(services)?;
         let entries = services
             .iter()
             .zip(dirs)
@@ -271,12 +374,12 @@ impl ServicesManifest {
                 depends_on: Vec::new(),
             })
             .collect();
-        Self {
+        Ok(Self {
             version: 1,
             project: project.to_owned(),
             shared_paths: Self::default_shared_paths(),
             services: entries,
-        }
+        })
     }
 
     /// Serialize as the committed `keel.services.json` (pretty, trailing newline).
@@ -300,6 +403,15 @@ mod tests {
         ServiceSelection {
             service_type: t,
             language: lang.to_owned(),
+            name: None,
+        }
+    }
+
+    fn named(t: ServiceType, lang: &str, name: &str) -> ServiceSelection {
+        ServiceSelection {
+            service_type: t,
+            language: lang.to_owned(),
+            name: Some(name.to_owned()),
         }
     }
 
@@ -321,11 +433,104 @@ mod tests {
         let s = ServiceSelection::parse("api:python").expect("valid");
         assert_eq!(s.service_type, ServiceType::Api);
         assert_eq!(s.language, "python");
+        assert_eq!(s.name, None);
         assert_eq!(s.blueprint_name(), "api-python");
         assert!(ServiceSelection::parse("api").is_err());
         assert!(ServiceSelection::parse("gpu:python").is_err());
         assert!(ServiceSelection::parse("api:").is_err());
         assert!(ServiceSelection::parse("api:Py thon").is_err());
+    }
+
+    #[test]
+    fn parse_accepts_the_three_segment_named_form() {
+        let s = ServiceSelection::parse("api:python:ingest").expect("valid named form");
+        assert_eq!(s.service_type, ServiceType::Api);
+        assert_eq!(s.language, "python");
+        assert_eq!(s.name.as_deref(), Some("ingest"));
+        // Invalid names are rejected: uppercase, too short, trailing hyphen, leading digit.
+        assert!(ServiceSelection::parse("api:python:Ingest").is_err());
+        assert!(ServiceSelection::parse("api:python:x").is_err());
+        assert!(ServiceSelection::parse("api:python:ingest-").is_err());
+        assert!(ServiceSelection::parse("api:python:1ngest").is_err());
+        assert!(ServiceSelection::parse("api:python:").is_err());
+    }
+
+    #[test]
+    fn service_name_rule_matches_the_spec_slug() {
+        assert!(is_valid_service_name("ingest"));
+        assert!(is_valid_service_name("ab"));
+        assert!(is_valid_service_name("a2-b3"));
+        assert!(is_valid_service_name(&format!("a{}", "b".repeat(29)))); // 30 chars
+        assert!(!is_valid_service_name("a")); // too short
+        assert!(!is_valid_service_name(&format!("a{}", "b".repeat(30)))); // 31 chars
+        assert!(!is_valid_service_name("Ingest")); // uppercase
+        assert!(!is_valid_service_name("1ngest")); // digit start
+        assert!(!is_valid_service_name("ingest-")); // trailing hyphen
+        assert!(!is_valid_service_name("in_gest")); // underscore
+        assert!(!is_valid_service_name("")); // empty
+    }
+
+    #[test]
+    fn selection_serde_is_additive() {
+        // Old 2-field payloads deserialize (name = None) and serialize byte-identically.
+        let old = r#"{"type":"api","lang":"python"}"#;
+        let s: ServiceSelection = serde_json::from_str(old).expect("old payload parses");
+        assert_eq!(s.name, None);
+        assert_eq!(serde_json::to_string(&s).expect("serialize"), old);
+        // Named payloads round-trip.
+        let named_json = r#"{"type":"api","lang":"python","name":"ingest"}"#;
+        let s: ServiceSelection = serde_json::from_str(named_json).expect("named payload parses");
+        assert_eq!(s.name.as_deref(), Some("ingest"));
+        assert_eq!(serde_json::to_string(&s).expect("serialize"), named_json);
+    }
+
+    #[test]
+    fn resolve_explicit_names_win_and_unnamed_keep_ordinals() {
+        let services = vec![
+            sel(ServiceType::Api, "python"),
+            named(ServiceType::Api, "node", "ingest"),
+            sel(ServiceType::Api, "python"),
+            sel(ServiceType::Fe, "react"),
+        ];
+        // Two UNNAMED api entries ⇒ api-1/api-2; the named one never consumes an ordinal.
+        assert_eq!(
+            resolve_service_names(&services).expect("valid"),
+            vec!["api-1", "ingest", "api-2", "fe"]
+        );
+        assert_eq!(
+            service_repo_names("demo", &services).expect("valid"),
+            vec!["demo-api-1", "demo-ingest", "demo-api-2", "demo-fe"]
+        );
+        assert_eq!(
+            service_dirs(&services).expect("valid"),
+            vec!["api-1", "ingest", "api-2", "fe"]
+        );
+    }
+
+    #[test]
+    fn resolve_rejects_duplicates_naming_the_collision() {
+        // Explicit vs explicit.
+        let err = resolve_service_names(&[
+            named(ServiceType::Api, "python", "ingest"),
+            named(ServiceType::Fe, "react", "ingest"),
+        ])
+        .expect_err("duplicate explicit names");
+        assert!(matches!(err, KeelError::Validation(_)), "got {err:?}");
+        assert!(err.to_string().contains("ingest"), "{err}");
+        // Explicit name colliding with an ordinal default.
+        let err = resolve_service_names(&[
+            sel(ServiceType::Api, "python"),
+            named(ServiceType::Fe, "react", "api"),
+        ])
+        .expect_err("explicit name shadows the ordinal default");
+        assert!(err.to_string().contains("\"api\""), "{err}");
+    }
+
+    #[test]
+    fn resolve_rejects_invalid_explicit_names() {
+        let err = resolve_service_names(&[named(ServiceType::Api, "python", "Bad-Name")])
+            .expect_err("invalid slug");
+        assert!(matches!(err, KeelError::Validation(_)), "got {err:?}");
     }
 
     #[test]
@@ -351,10 +556,13 @@ mod tests {
             sel(ServiceType::Api, "node"),
         ];
         assert_eq!(
-            service_repo_names("demo", &services),
+            service_repo_names("demo", &services).expect("no names is always valid"),
             vec!["demo-api-1", "demo-fe", "demo-api-2"]
         );
-        assert_eq!(service_dirs(&services), vec!["api-1", "fe", "api-2"]);
+        assert_eq!(
+            service_dirs(&services).expect("no names is always valid"),
+            vec!["api-1", "fe", "api-2"]
+        );
     }
 
     #[test]
@@ -363,7 +571,7 @@ mod tests {
             sel(ServiceType::Api, "python"),
             sel(ServiceType::Fe, "react"),
         ];
-        let m = ServicesManifest::new("demo", &services);
+        let m = ServicesManifest::new("demo", &services).expect("valid selections");
         assert_eq!(m.version, 1);
         assert_eq!(m.services.len(), 2);
         assert_eq!(m.services[0].dir, "api");
@@ -376,28 +584,138 @@ mod tests {
 
     // ── properties ───────────────────────────────────────────────────────────
 
+    fn arb_type() -> impl Strategy<Value = ServiceType> {
+        prop_oneof![
+            Just(ServiceType::Fe),
+            Just(ServiceType::Api),
+            Just(ServiceType::Wk),
+            Just(ServiceType::Dp),
+            Just(ServiceType::Inf)
+        ]
+    }
+
     fn arb_service() -> impl Strategy<Value = ServiceSelection> {
-        (
-            prop_oneof![
-                Just(ServiceType::Fe),
-                Just(ServiceType::Api),
-                Just(ServiceType::Wk),
-                Just(ServiceType::Dp),
-                Just(ServiceType::Inf)
-            ],
-            "[a-z][a-z0-9]{0,8}",
-        )
-            .prop_map(|(t, lang)| ServiceSelection {
+        (arb_type(), "[a-z][a-z0-9]{0,8}").prop_map(|(t, lang)| ServiceSelection {
+            service_type: t,
+            language: lang,
+            name: None,
+        })
+    }
+
+    /// A valid explicit v5 name that can never collide with an ordinal default (`x-` prefix —
+    /// no service tag starts with `x`), so mixed-name vectors always resolve.
+    fn arb_named_service() -> impl Strategy<Value = ServiceSelection> {
+        (arb_type(), "[a-z][a-z0-9]{0,8}", "x-[a-z0-9]{1,20}").prop_map(|(t, lang, name)| {
+            ServiceSelection {
                 service_type: t,
                 language: lang,
+                name: Some(name),
+            }
+        })
+    }
+
+    /// Mixed vectors: unnamed entries plus explicit names drawn from a distinct-by-construction
+    /// pool (an `x-{index}-…` prefix), so the final set is always collision-free.
+    fn arb_mixed_services() -> impl Strategy<Value = Vec<ServiceSelection>> {
+        proptest::collection::vec(
+            (arb_type(), "[a-z][a-z0-9]{0,8}", proptest::bool::ANY),
+            1..10,
+        )
+        .prop_map(|entries| {
+            entries
+                .into_iter()
+                .enumerate()
+                .map(|(i, (t, lang, use_name))| ServiceSelection {
+                    service_type: t,
+                    language: lang,
+                    name: use_name.then(|| format!("x-{i}")),
+                })
+                .collect()
+        })
+    }
+
+    /// The FROZEN v4 ordinal algorithm, copied verbatim as the regression oracle
+    /// (pre-v5 `ordinal_suffixes`). Do not "fix" this — it pins v4 behavior.
+    fn v4_ordinal_suffixes(services: &[ServiceSelection]) -> Vec<String> {
+        let mut totals: std::collections::HashMap<ServiceType, u32> =
+            std::collections::HashMap::new();
+        for s in services {
+            *totals.entry(s.service_type).or_default() += 1;
+        }
+        let mut seen: std::collections::HashMap<ServiceType, u32> =
+            std::collections::HashMap::new();
+        services
+            .iter()
+            .map(|s| {
+                let n = seen.entry(s.service_type).or_default();
+                *n += 1;
+                let tag = s.service_type.tag();
+                if totals[&s.service_type] > 1 {
+                    format!("{tag}-{n}")
+                } else {
+                    tag.to_owned()
+                }
             })
+            .collect()
     }
 
     proptest! {
+        /// v5 regression guard: with NO names given, resolution is byte-identical to the v4
+        /// ordinal algorithm — for `resolve_service_names`, `service_dirs`, AND
+        /// `service_repo_names`.
+        #[test]
+        fn no_names_input_is_byte_identical_to_v4(
+            services in proptest::collection::vec(arb_service(), 1..10)
+        ) {
+            let oracle = v4_ordinal_suffixes(&services);
+            prop_assert_eq!(&resolve_service_names(&services).expect("total"), &oracle);
+            prop_assert_eq!(&service_dirs(&services).expect("total"), &oracle);
+            let repos: Vec<String> = oracle.iter().map(|s| format!("demo-svc-{s}")).collect();
+            prop_assert_eq!(service_repo_names("demo-svc", &services).expect("total"), repos);
+        }
+
+        /// Resolution is total + deterministic on valid input, collision-free, and preserves
+        /// explicit names verbatim at their positions.
+        #[test]
+        fn resolution_total_deterministic_collision_free(services in arb_mixed_services()) {
+            let names = resolve_service_names(&services).expect("total on valid input");
+            let again = resolve_service_names(&services).expect("total on valid input");
+            prop_assert_eq!(&names, &again, "must be deterministic");
+            prop_assert_eq!(names.len(), services.len());
+            let uniq: std::collections::HashSet<_> = names.iter().collect();
+            prop_assert_eq!(uniq.len(), names.len(), "output must be collision-free");
+            for (s, resolved) in services.iter().zip(&names) {
+                if let Some(explicit) = &s.name {
+                    prop_assert_eq!(explicit, resolved, "explicit names preserved verbatim");
+                }
+                prop_assert!(is_valid_service_name(resolved), "resolved {} invalid", resolved);
+            }
+        }
+
+        /// The CLI form round-trips for both the 2- and 3-segment shapes.
+        #[test]
+        fn parse_round_trips_two_and_three_segment_forms(
+            s in arb_service(),
+            named in arb_named_service(),
+        ) {
+            let two = format!("{}:{}", s.service_type.tag(), s.language);
+            prop_assert_eq!(ServiceSelection::parse(&two).expect("2-segment"), s);
+            let name = named.name.clone().expect("named by construction");
+            let three = format!("{}:{}:{}", named.service_type.tag(), named.language, name);
+            prop_assert_eq!(ServiceSelection::parse(&three).expect("3-segment"), named);
+        }
+
+        /// Invalid third segments are always rejected.
+        #[test]
+        fn parse_rejects_invalid_names(bad in "[A-Z_][A-Za-z0-9_]{0,10}") {
+            let entry = format!("api:python:{bad}");
+            prop_assert!(ServiceSelection::parse(&entry).is_err(), "accepted {:?}", entry);
+        }
+
         /// Repo names are unique and every one satisfies the project-name pattern.
         #[test]
         fn repo_names_unique_and_valid(services in proptest::collection::vec(arb_service(), 1..10)) {
-            let names = service_repo_names("demo-svc", &services);
+            let names = service_repo_names("demo-svc", &services).expect("no names is valid");
             let uniq: std::collections::HashSet<_> = names.iter().collect();
             prop_assert_eq!(uniq.len(), names.len(), "names must be unique");
             for n in &names {
@@ -407,13 +725,13 @@ mod tests {
 
         /// Dirs are unique, stable under re-derivation, and aligned index-for-index with names.
         #[test]
-        fn dirs_unique_stable_and_aligned(services in proptest::collection::vec(arb_service(), 1..10)) {
-            let dirs = service_dirs(&services);
-            let again = service_dirs(&services);
+        fn dirs_unique_stable_and_aligned(services in arb_mixed_services()) {
+            let dirs = service_dirs(&services).expect("valid input");
+            let again = service_dirs(&services).expect("valid input");
             prop_assert_eq!(&dirs, &again, "derivation must be deterministic");
             let uniq: std::collections::HashSet<_> = dirs.iter().collect();
             prop_assert_eq!(uniq.len(), dirs.len(), "dirs must be unique");
-            let names = service_repo_names("p", &services);
+            let names = service_repo_names("p", &services).expect("valid input");
             for (d, n) in dirs.iter().zip(&names) {
                 prop_assert_eq!(&format!("p-{d}"), n, "dir/name rule must agree");
             }
@@ -421,8 +739,8 @@ mod tests {
 
         /// The manifest round-trips through its own JSON and covers every selection exactly once.
         #[test]
-        fn manifest_round_trips(services in proptest::collection::vec(arb_service(), 1..10)) {
-            let m = ServicesManifest::new("demo", &services);
+        fn manifest_round_trips(services in arb_mixed_services()) {
+            let m = ServicesManifest::new("demo", &services).expect("valid input");
             prop_assert_eq!(m.services.len(), services.len());
             let json = m.to_json().unwrap();
             let back: ServicesManifest = serde_json::from_slice(&json).unwrap();

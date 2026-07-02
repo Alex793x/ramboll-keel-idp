@@ -61,7 +61,7 @@ pub(super) fn run(
     // ── Step 3: render ───────────────────────────────────────────────────────
     // Each service renders with its own context (`service` object + full `services` array), and
     // every repo gets the committed `branch-protection.json` governance record.
-    let ctxs = build_service_ctxs(req);
+    let ctxs = build_service_ctxs(req)?;
     let mut file_sets: Vec<Vec<RenderedFile>> = Vec::with_capacity(plans.len());
     let mut total_files = 0usize;
     for (plan, ctx) in plans.iter().zip(&ctxs) {
@@ -167,8 +167,8 @@ pub(super) fn run(
     Ok(outcome)
 }
 
-/// Build the [`RepoSpec`] for one service repo.
-fn service_repo_spec(
+/// Build the [`RepoSpec`] for one service repo (shared with the v5 add-service path).
+pub(super) fn service_repo_spec(
     req: &InitRequest,
     owner: &str,
     plan: &ServicePlan,

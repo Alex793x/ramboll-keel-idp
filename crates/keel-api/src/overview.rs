@@ -16,10 +16,13 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use keel_core::{InitOutcome, Person, RepoCoordinates, ServiceType};
+use keel_core::{
+    InitOutcome, KeelError, Person, ProgressEvent, RepoCoordinates, ServiceSelection, ServiceType,
+    Status,
+};
 
 use crate::state::AppState;
 
@@ -57,10 +60,11 @@ pub struct ProjectInfoDto {
     pub repos: Vec<RepoDto>,
 }
 
-/// One service component of the project.
-#[derive(Debug, Clone, Serialize)]
+/// One service component of the project. `Deserialize` because the v5 overlay store
+/// (`keel.additions.json`) persists exactly this shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServiceDto {
-    /// Directory / repo suffix (e.g. `"api"`, `"api-2"`).
+    /// Directory / repo suffix (e.g. `"api"`, `"api-2"`, or a v5 explicit name like `"ingest"`).
     pub dir: String,
     #[serde(rename = "type")]
     pub service_type: String,
@@ -175,6 +179,34 @@ pub struct FeedCommitDto {
     pub author: AuthorDto,
     pub branch: String,
     pub at: i64,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §19.4 add-service wire DTOs
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `POST /api/projects/:id/services` request body (SPEC §19.4): `{ type, lang, name? }`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AddServiceBody {
+    #[serde(rename = "type")]
+    pub service_type: String,
+    pub lang: String,
+    /// Optional explicit component name (SPEC §19.1). Blank/absent ⇒ the ordinal default.
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// `POST /api/projects/:id/services` response (SPEC §19.4).
+#[derive(Debug, Clone, Serialize)]
+pub struct AddServiceResponseDto {
+    /// The newly added service, shaped exactly like an `overview.project.services` entry.
+    pub service: ServiceDto,
+    /// The created repository (materialized multi-repo only); `null` for catalog-only additions.
+    pub repo: Option<RepoDto>,
+    /// `false` ⇒ recorded to the catalog overlay without pushing/creating anything (see handler).
+    pub materialized: bool,
+    /// The `form … register` progress events for the addition.
+    pub events: Vec<ProgressEvent>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -962,7 +994,9 @@ fn now_epoch_s() -> i64 {
 /// `GET /api/projects/:id/overview` → `200 ProjectOverviewDto` | `404 { "error": … }`.
 ///
 /// Catalog rows are matched by `InitOutcome::project` **or** `catalog_id`; a failing catalog
-/// read degrades to "no catalog rows" so the six seeded projects stay servable.
+/// read degrades to "no catalog rows" so the six seeded projects stay servable. The v5
+/// `keel.additions.json` overlay is merged into `project.services` so add-service results survive
+/// restarts and appear on the dashboard (SPEC §19.4).
 pub(crate) async fn project_overview(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -970,13 +1004,176 @@ pub(crate) async fn project_overview(
     let rows = state.engine.list_projects().unwrap_or_default();
     let row = rows.iter().find(|r| r.project == id || r.catalog_id == id);
     match overview(&id, row, &state.data.people, now_epoch_s()) {
-        Some(dto) => Json(dto).into_response(),
-        None => (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": format!("unknown project: {id:?}") })),
-        )
-            .into_response(),
+        Some(mut dto) => {
+            merge_service_overlay(&mut dto.project, &state.additions.for_project(&id));
+            Json(dto).into_response()
+        }
+        None => not_found(&id),
     }
+}
+
+/// Whether `id` is one of the six seeded design projects (RMB-*).
+pub(crate) fn is_seeded(id: &str) -> bool {
+    SEEDED.iter().any(|s| s.id == id)
+}
+
+/// A uniform `404 { "error": "unknown project: …" }` response.
+fn not_found(id: &str) -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({ "error": format!("unknown project: {id:?}") })),
+    )
+        .into_response()
+}
+
+/// Append v5 overlay services to `project.services`, skipping any whose `dir` already appears — so
+/// merging is idempotent no matter how many times the overview is fetched.
+fn merge_service_overlay(project: &mut ProjectInfoDto, overlay: &[ServiceDto]) {
+    for svc in overlay {
+        if !project.services.iter().any(|s| s.dir == svc.dir) {
+            project.services.push(svc.clone());
+        }
+    }
+}
+
+/// `POST /api/projects/:id/services` (SPEC §19.4) → `200 AddServiceResponseDto`
+/// | `400 { error }` (bad type/lang/name or name collision) | `404 { error }` (unknown project).
+///
+/// The addition is recorded to the `keel.additions.json` overlay and surfaced on the dashboard via
+/// [`project_overview`]'s merge; collision checks run against the merged (generated + overlay)
+/// service set, so a repeated add of the same name is a clean 400.
+///
+/// `materialized` is `false`: API-driven materialization would need the original init-context
+/// (department/users/author/description) that the catalog does not persist, so the endpoint records
+/// intent only. The real materialization path — a new `{project}-{name}` repo (multi-repo) or a
+/// single commit to `dev` (monolith) — is [`keel_engine::Engine::add_service`], proven by the
+/// engine's integration tests and driven by the CLI, where the caller supplies that context.
+pub(crate) async fn add_project_service(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(raw): Json<serde_json::Value>,
+) -> Response {
+    // 1. Body → DTO (uniform 400 on shape errors, like `initialize`).
+    let body: AddServiceBody = match serde_json::from_value(raw) {
+        Ok(b) => b,
+        Err(e) => {
+            return crate::routes::error_response(&KeelError::Validation(format!(
+                "invalid request body: {e}"
+            )))
+        }
+    };
+
+    // 2. Validate type/lang/name into a selection (400 on any bad field).
+    let selection = match parse_add_selection(&body) {
+        Ok(s) => s,
+        Err(e) => return crate::routes::error_response(&e),
+    };
+
+    // 3. Resolve the project: a real catalog row, a seeded design row, or 404.
+    let rows = state.engine.list_projects().unwrap_or_default();
+    let row = rows.iter().find(|r| r.project == id || r.catalog_id == id);
+    let Some(mut pre) = overview(&id, row, &state.data.people, now_epoch_s()) else {
+        return not_found(&id);
+    };
+
+    // 4. Collision domain = the merged current service set (generated + existing overlay).
+    merge_service_overlay(&mut pre.project, &state.additions.for_project(&id));
+    let existing: Vec<String> = pre.project.services.iter().map(|s| s.dir.clone()).collect();
+    let name = match resolve_added_name(&selection, &existing) {
+        Ok(n) => n,
+        Err(e) => return crate::routes::error_response(&e),
+    };
+
+    // 5. Record to the overlay and respond; the chip appears on the next overview fetch.
+    let service = ServiceDto {
+        dir: name.clone(),
+        service_type: selection.service_type.tag().to_owned(),
+        lang: selection.language.clone(),
+        name: selection.service_type.label().to_owned(),
+    };
+    if let Err(e) = state.additions.append(&id, service.clone()) {
+        return crate::routes::error_response(&e);
+    }
+    let note = if is_seeded(&id) {
+        "recorded to catalog overlay (demo project)"
+    } else {
+        "recorded to catalog overlay"
+    };
+    let events = vec![
+        ProgressEvent::new(
+            1,
+            "form",
+            "Validate service",
+            Status::Done,
+            format!(
+                "resolved {}:{} as service {name:?}",
+                selection.service_type.tag(),
+                selection.language
+            ),
+        ),
+        ProgressEvent::new(4, "register", "Register service", Status::Done, note),
+    ];
+    Json(AddServiceResponseDto {
+        service,
+        repo: None,
+        materialized: false,
+        events,
+    })
+    .into_response()
+}
+
+/// Parse + validate an [`AddServiceBody`] into a [`ServiceSelection`] (400 on bad type/lang/name).
+fn parse_add_selection(body: &AddServiceBody) -> keel_core::Result<ServiceSelection> {
+    let service_type: ServiceType = body.service_type.parse().map_err(|_| {
+        KeelError::Validation(format!("unknown service type {:?}", body.service_type))
+    })?;
+    let lang = body.lang.trim();
+    if lang.is_empty() {
+        return Err(KeelError::Validation(
+            "service lang must not be empty".to_owned(),
+        ));
+    }
+    let name = match body.name.as_deref().map(str::trim) {
+        Some(n) if !n.is_empty() => {
+            if !keel_core::is_valid_service_name(n) {
+                return Err(KeelError::Validation(format!(
+                    "invalid service name {n:?} (expected {})",
+                    keel_core::SERVICE_NAME_PATTERN
+                )));
+            }
+            Some(n.to_owned())
+        }
+        _ => None,
+    };
+    Ok(ServiceSelection {
+        service_type,
+        language: lang.to_owned(),
+        name,
+    })
+}
+
+/// Resolve the added service's final name against the project's existing service names — the same
+/// rule the engine uses: existing names enter as explicit entries, the new selection is the tail,
+/// and [`keel_core::resolve_service_names`] resolves the default and flags any collision as a
+/// [`KeelError::Validation`].
+fn resolve_added_name(
+    selection: &ServiceSelection,
+    existing: &[String],
+) -> keel_core::Result<String> {
+    let mut combined: Vec<ServiceSelection> = existing
+        .iter()
+        .map(|n| ServiceSelection {
+            service_type: selection.service_type,
+            language: selection.language.clone(),
+            name: Some(n.clone()),
+        })
+        .collect();
+    combined.push(selection.clone());
+    let names = keel_core::resolve_service_names(&combined)?;
+    names
+        .last()
+        .cloned()
+        .ok_or_else(|| KeelError::Validation("service name resolution produced no name".to_owned()))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1469,5 +1666,149 @@ mod tests {
             .as_str()
             .expect("error string")
             .contains("unknown project"));
+    }
+
+    // ── v5 add-service endpoint (SPEC §19.4) ──────────────────────────────────
+
+    use crate::additions::{AdditionsStore, ADDITIONS_FILE};
+    use tempfile::TempDir;
+
+    /// A test state whose add-service overlay is isolated to `dir` (never the repo's `.keel/`).
+    fn state_with_overlay(dir: &std::path::Path) -> AppState {
+        let mut state = test_state();
+        state.additions = AdditionsStore::new(dir.join(ADDITIONS_FILE));
+        state
+    }
+
+    async fn post_service(state: AppState, id: &str, body: serde_json::Value) -> Response {
+        crate::routes::app(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/projects/{id}/services"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .expect("req"),
+            )
+            .await
+            .expect("response")
+    }
+
+    async fn get_overview_with(state: AppState, id: &str) -> Response {
+        crate::routes::app(state)
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/projects/{id}/overview"))
+                    .body(Body::empty())
+                    .expect("req"),
+            )
+            .await
+            .expect("response")
+    }
+
+    #[tokio::test]
+    async fn add_service_records_overlay_and_appears_in_overview() {
+        let td = TempDir::new().unwrap();
+        let state = state_with_overlay(td.path());
+
+        let before = body_json(get_overview_with(state.clone(), "RMB-EN-042").await).await;
+        let n_before = before["project"]["services"]
+            .as_array()
+            .expect("services")
+            .len();
+
+        let resp = post_service(
+            state.clone(),
+            "RMB-EN-042",
+            json!({ "type": "api", "lang": "python", "name": "ingest" }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["materialized"], false);
+        assert_eq!(body["repo"], serde_json::Value::Null);
+        assert_eq!(body["service"]["dir"], "ingest");
+        assert_eq!(body["service"]["type"], "api");
+        assert_eq!(body["service"]["lang"], "python");
+        assert_eq!(body["service"]["name"], "Backend API");
+        assert!(body["events"].as_array().expect("events").len() >= 2);
+
+        // The overlay is merged into the next overview fetch (survives across requests).
+        let after = body_json(get_overview_with(state, "RMB-EN-042").await).await;
+        let svcs = after["project"]["services"].as_array().expect("services");
+        assert_eq!(svcs.len(), n_before + 1, "the new chip appears once");
+        assert!(svcs.iter().any(|s| s["dir"] == "ingest"));
+    }
+
+    #[tokio::test]
+    async fn add_service_duplicate_name_is_400() {
+        let td = TempDir::new().unwrap();
+        let state = state_with_overlay(td.path());
+        let first = post_service(
+            state.clone(),
+            "RMB-EN-042",
+            json!({ "type": "api", "lang": "python", "name": "ingest" }),
+        )
+        .await;
+        assert_eq!(first.status(), StatusCode::OK);
+        let dup = post_service(
+            state,
+            "RMB-EN-042",
+            json!({ "type": "fe", "lang": "react", "name": "ingest" }),
+        )
+        .await;
+        assert_eq!(
+            dup.status(),
+            StatusCode::BAD_REQUEST,
+            "explicit name collision"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_service_unnamed_default_can_collide_with_generated_service() {
+        // Every seeded project's first generated service has dir == its type tag (e.g. "api"),
+        // so an unnamed `api` addition resolves to "api" and collides — a clean 400.
+        let td = TempDir::new().unwrap();
+        let state = state_with_overlay(td.path());
+        let resp = post_service(
+            state,
+            "RMB-EN-042",
+            json!({ "type": "api", "lang": "python" }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn add_service_rejects_bad_name_type_and_unknown_project() {
+        let td = TempDir::new().unwrap();
+        let state = state_with_overlay(td.path());
+
+        // Invalid slug (underscore/caps).
+        let bad_name = post_service(
+            state.clone(),
+            "RMB-EN-042",
+            json!({ "type": "api", "lang": "python", "name": "Bad_Name" }),
+        )
+        .await;
+        assert_eq!(bad_name.status(), StatusCode::BAD_REQUEST);
+
+        // Unknown service type.
+        let bad_type = post_service(
+            state.clone(),
+            "RMB-EN-042",
+            json!({ "type": "nope", "lang": "python" }),
+        )
+        .await;
+        assert_eq!(bad_type.status(), StatusCode::BAD_REQUEST);
+
+        // Unknown project.
+        let missing = post_service(
+            state,
+            "does-not-exist",
+            json!({ "type": "api", "lang": "python", "name": "svc" }),
+        )
+        .await;
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
     }
 }

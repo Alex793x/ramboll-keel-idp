@@ -29,12 +29,16 @@ pub fn app(state: AppState) -> Router {
             "/api/projects/:id/overview",
             get(crate::overview::project_overview),
         )
+        .route(
+            "/api/projects/:id/services",
+            post(crate::overview::add_project_service),
+        )
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
 
 /// Map a [`keel_core::KeelError`] to an HTTP status + JSON `{ "error": "…" }` body.
-fn error_response(err: &keel_core::KeelError) -> Response {
+pub(crate) fn error_response(err: &keel_core::KeelError) -> Response {
     let status = match err {
         keel_core::KeelError::Validation(_) => StatusCode::BAD_REQUEST,
         keel_core::KeelError::Conflict(_) => StatusCode::CONFLICT,

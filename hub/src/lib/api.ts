@@ -8,6 +8,8 @@
  */
 
 import type {
+  AddServiceBody,
+  AddServiceResponse,
   Blueprint,
   CatalogServiceType,
   Contributor,
@@ -121,6 +123,49 @@ export class KeelApi {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+  }
+
+  /**
+   * `POST /api/projects/:id/services` — add a service component to a running
+   * project (SPEC §19.4). Non-2xx rejects with an {@link ApiError} whose
+   * message is the server's JSON `{ "error": … }` when the body carries one
+   * (bad type/lang/name, collision ⇒ 400; unknown project ⇒ 404).
+   */
+  async addProjectService(
+    id: string,
+    body: AddServiceBody,
+  ): Promise<AddServiceResponse> {
+    try {
+      return await this.request<AddServiceResponse>(
+        `/api/projects/${encodeURIComponent(id)}/services`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+    } catch (err) {
+      if (err instanceof ApiError) {
+        throw new ApiError(
+          err.status,
+          err.body,
+          serverErrorMessage(err.body) ?? err.message,
+        );
+      }
+      throw err;
+    }
+  }
+}
+
+/** The server's JSON `{ "error": "…" }` message, when the body carries one. */
+function serverErrorMessage(body: string): string | null {
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown };
+    return typeof parsed.error === "string" && parsed.error !== ""
+      ? parsed.error
+      : null;
+  } catch {
+    return null;
   }
 }
 

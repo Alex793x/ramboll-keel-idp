@@ -20,8 +20,9 @@ pub use catalog::{DepartmentRecord, MockCatalog, Person, Selection};
 /// v3 multi-service domain: layouts, service selections, naming, `keel.services.json` (SPEC §11).
 pub mod service;
 pub use service::{
-    default_services, service_dirs, service_repo_names, RepoLayout, ServiceEntry, ServiceSelection,
-    ServiceType, ServicesManifest,
+    default_services, is_valid_language_slug, is_valid_service_name, resolve_service_names,
+    service_dirs, service_repo_names, RepoLayout, ServiceEntry, ServiceSelection, ServiceType,
+    ServicesManifest, SERVICE_NAME_PATTERN,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -137,6 +138,11 @@ impl InitRequest {
                     s.service_type.tag()
                 )));
             }
+        }
+        // v5: explicit names must be valid slugs and the FINAL name set collision-free
+        // (resolve_service_names validates both), so bad names fail at the form step.
+        if !self.services.is_empty() {
+            service::resolve_service_names(&self.services)?;
         }
         Ok(())
     }
@@ -278,6 +284,49 @@ pub trait RepoProvider {
 
     /// Apply (best-effort) branch protection. Implementations may legitimately no-op/skip.
     fn write_protection(&self, repo: &RepoCoordinates, policy: &ProtectionPolicy) -> Result<()>;
+
+    /// Read one file's raw bytes from `repo` at `branch`. `Ok(None)` ⇔ the path does not exist
+    /// on that branch (a genuine not-found — transport/auth failures must be `Err`).
+    ///
+    /// v5-additive capability (SPEC §19.2) with a default body, so pre-v5 implementations keep
+    /// compiling; providers that cannot read (e.g. `OctocrabProvider` today) keep the default.
+    ///
+    /// # Errors
+    /// [`KeelError::Github`] if the provider does not support reads, or on any read failure
+    /// that is not a plain not-found.
+    fn read_file(
+        &self,
+        repo: &RepoCoordinates,
+        branch: &str,
+        path: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        let _ = (repo, branch, path);
+        Err(KeelError::Github(
+            "this provider does not support read_file".to_owned(),
+        ))
+    }
+
+    /// Commit `files` onto `branch` of an **existing** repository as exactly ONE commit with
+    /// `message` (paths overwrite; nothing is deleted).
+    ///
+    /// v5-additive capability (SPEC §19.2) with a default body, so pre-v5 implementations keep
+    /// compiling; providers that cannot push (e.g. `OctocrabProvider` today) keep the default.
+    ///
+    /// # Errors
+    /// [`KeelError::Github`] if the provider does not support pushes, or on any git/transport
+    /// failure.
+    fn push_files(
+        &self,
+        repo: &RepoCoordinates,
+        branch: &str,
+        files: &[RenderedFile],
+        message: &str,
+    ) -> Result<()> {
+        let _ = (repo, branch, files, message);
+        Err(KeelError::Github(
+            "this provider does not support push_files".to_owned(),
+        ))
+    }
 }
 
 /// Everything needed to create a repository and seed its first commit.

@@ -12,6 +12,14 @@
  * selector (GBA-chip vocabulary), and Initialize drives the REAL engine via
  * `POST /api/initialize` — the overlay animates the returned 8 workflow
  * events at `EVENT_TICK_MS` before handing off to `CreatedScreen`.
+ *
+ * v5 (SPEC §19.5): each service row gains an inline mono name field
+ * (placeholder = the computed ordinal default, so it always equals the
+ * server's fallback). Typing renames the service in place — the row's repo
+ * hint (`ramboll/{slug}-{resolved}`) and the Live Blueprint nodes update
+ * live. Invalid or duplicate names flip the field into the clay error tone,
+ * render the validation copy under the row, and disable Initialize via the
+ * existing `canInit` path.
  */
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { color, font } from '../../design/tokens';
@@ -34,12 +42,15 @@ import {
   canInit,
   catalogEntry,
   defaultLang,
+  defaultServiceName,
   designCatalog,
   initErrorMessage,
   initHint,
   initials,
   provRowsFromEvents,
   repoName,
+  resolvedServiceName,
+  serviceNameError,
   slugOf,
   type CreatedProject,
   type RepoLayout,
@@ -240,6 +251,11 @@ export function WizardScreen({ onCreated, api }: WizardScreenProps) {
       repos,
     });
   }, [prov, name, gba, services, contributors, onCreated]);
+
+  // v5 rename_service action: store the RAW typed name on the service at
+  // `index` — the same map-in-place idiom as the language-chip action above.
+  const renameService = (index: number, value: string) =>
+    setServices((s) => s.map((x, j) => (j === index ? { ...x, name: value } : x)));
 
   // v3: POST the real payload; the overlay opens immediately (pending phase).
   const startProvisioning = () => {
@@ -518,9 +534,20 @@ export function WizardScreen({ onCreated, api }: WizardScreenProps) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {services.map((sv, i) => {
                   const t = catalogEntry(catalog, sv.type);
+                  // v5 (SPEC §19.5): the row's naming state — the placeholder
+                  // always shows the server's ordinal default.
+                  const namePlaceholder = defaultServiceName(services, i);
+                  const nameError = serviceNameError(services, i);
+                  const nameChars = Math.max(
+                    (sv.name ?? '').length,
+                    namePlaceholder.length,
+                  );
                   return (
                     <div
                       key={`${sv.type}-${i}`}
+                      style={{ display: 'flex', flexDirection: 'column', gap: 5 }}
+                    >
+                    <div
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -552,6 +579,29 @@ export function WizardScreen({ onCreated, api }: WizardScreenProps) {
                         </div>
                         <div style={{ fontFamily: font.mono, fontSize: 10, color: color.dim }}>
                           {repoName(slug, services, i)}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <input
+                          className={
+                            'wz-name' + (nameError !== null ? ' wz-name-err' : '')
+                          }
+                          aria-label="Service name"
+                          value={sv.name ?? ''}
+                          onChange={(e) => renameService(i, e.target.value)}
+                          placeholder={namePlaceholder}
+                          // ch-clamped so the field hugs its content (8–32ch).
+                          style={{ width: `${Math.min(Math.max(nameChars + 2, 8), 32)}ch` }}
+                        />
+                        <div
+                          style={{
+                            fontFamily: font.mono,
+                            fontSize: 9.5,
+                            color: color.dim,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {`ramboll/${slug}-${resolvedServiceName(services, i)}`}
                         </div>
                       </div>
                       <div
@@ -635,6 +685,20 @@ export function WizardScreen({ onCreated, api }: WizardScreenProps) {
                       >
                         ✕
                       </span>
+                    </div>
+                    {nameError !== null && (
+                      <div
+                        style={{
+                          fontFamily: font.mono,
+                          fontSize: 10,
+                          color: color.clay,
+                          padding: '0 4px',
+                          animation: 'fadeIn 0.25s ease both',
+                        }}
+                      >
+                        {nameError}
+                      </div>
+                    )}
                     </div>
                   );
                 })}

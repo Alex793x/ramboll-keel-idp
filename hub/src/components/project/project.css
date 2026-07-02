@@ -62,6 +62,40 @@
   animation: pulseDot 1.6s ease-in-out infinite;
 }
 
+/* ── Add service (SPEC §19.5): ghost chip + popover ─────────────────────────
+ * Hover values are the wizard type-card feel, verbatim (wizard.css
+ * .wz-type-card:hover): cyan border #0098EB + rgba(0,152,235,.07) wash. */
+.prj-addsvc-chip {
+  transition: border-color 150ms, background 150ms;
+}
+.prj-addsvc-chip:hover {
+  border-color: #0098eb;
+  background: rgba(0, 152, 235, 0.07);
+}
+
+.prj-addsvc-type {
+  transition: border-color 150ms, background 150ms;
+}
+.prj-addsvc-type:not(:disabled):hover {
+  border-color: #0098eb;
+  background: rgba(0, 152, 235, 0.07);
+}
+
+/* Name input focus — the wizard input ring (wizard.css .wz-input:focus). */
+.prj-addsvc-name:focus {
+  border-color: #0098eb;
+  box-shadow: 0 0 0 3px rgba(0, 152, 235, 0.2);
+}
+
+.prj-addsvc-add:not(:disabled):hover {
+  filter: brightness(1.12);
+}
+
+/* Pulsing mono status lines (loading catalog… / provisioning…). */
+.prj-addsvc-pulse {
+  animation: pulseDot 1.6s ease-in-out infinite;
+}
+
 /* Three-column zone: Pipelines (1.2fr) · Activity (1fr) · sticky 300px rail. */
 .prj-columns {
   display: grid;

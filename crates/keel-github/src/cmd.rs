@@ -90,6 +90,16 @@ pub fn write_files(root: &Path, files: &[RenderedFile]) -> Result<()> {
 /// Returns [`KeelError::Github`] / [`KeelError::Io`] if any git invocation fails.
 pub fn git_init_commit(root: &Path, default_branch: &str, commit_message: &str) -> Result<()> {
     run("git", ["init", "-b", default_branch], root)?;
+    git_commit_all(root, commit_message)
+}
+
+/// Stage everything under `root` and commit with the deterministic Keel identity
+/// (`Keel <keel@ramboll.com>`), independent of the caller's global git config.
+///
+/// # Errors
+/// Returns [`KeelError::Github`] / [`KeelError::Io`] if any git invocation fails (including
+/// "nothing to commit" — callers are expected to have written changed files first).
+pub fn git_commit_all(root: &Path, commit_message: &str) -> Result<()> {
     run(
         "git",
         [

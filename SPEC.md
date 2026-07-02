@@ -598,12 +598,18 @@ may keep defaults (documented).
 Body `{ "type": "api", "lang": "python", "name": "ingest"? }` →
 `200 { "service": OverviewService, "repo": OverviewRepo|null, "materialized": bool, "events": [ProgressEvent] }`
 | `400 {error}` (bad type/lang/name, collision) | `404 {error}` (unknown project).
-- **Real catalog projects**: full engine materialization (`materialized: true`).
-- **Seeded design projects** (RMB-*): catalog-only — the addition is persisted to a small JSON
-  overlay store (`keel.additions.json`, gitignored, same dir as `keel.db`) and `materialized:
-  false` (no repo exists to push to; the hub labels it "catalog-only"). `overview()` **merges the
-  overlay** into `project.services` for both kinds, so additions survive restarts and appear on
-  the dashboard. Collision checks run against the merged service set.
+- The addition is persisted to a small JSON overlay store (`keel.additions.json`, gitignored,
+  sibling of the engine catalog under `.keel/`) and the overview handler **merges the overlay**
+  into `project.services`, so additions survive restarts and appear on the dashboard. Collision
+  checks run against the merged (generated + overlay) service set.
+- `materialized: false` in the MVP: API-driven materialization needs the original init-context
+  (department/users/author/description) that the catalog does **not** persist, so the endpoint
+  records intent only (the hub labels it "catalog-only"). Every project reachable in the running
+  app is a seeded design project (RMB-*), which has no repo to push to anyway.
+- **Real materialization** — a new `{project}-{name}` repo (multi-repo) or one commit to `dev`
+  (monolith) — is `Engine::add_service` (§19.3), proven by the engine's integration tests and
+  driven from a context-carrying caller (CLI/programmatic). Persisting the init-context so the API
+  can set `materialized: true` for real projects is a documented follow-up.
 
 ### 19.5 Hub
 

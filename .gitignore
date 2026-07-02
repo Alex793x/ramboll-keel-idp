@@ -21,6 +21,7 @@ keel.db
 
 # ── Keel runtime catalog/audit (written by the engine at run time) ─
 /.keel/
+keel.additions.json
 
 # ── MemTrace local store ───────────────────────────────
 /.memdb/

@@ -393,10 +393,12 @@ mod tests {
                 ServiceSelection {
                     service_type: keel_core::ServiceType::Api,
                     language: "python".to_owned(),
+                    name: None,
                 },
                 ServiceSelection {
                     service_type: keel_core::ServiceType::Fe,
                     language: "react".to_owned(),
+                    name: None,
                 },
             ]
         );
