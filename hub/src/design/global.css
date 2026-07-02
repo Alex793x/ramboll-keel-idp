@@ -1,0 +1,24 @@
+/*
+ * Global stylesheet — EXACT port of the design source `<style>` block
+ * (Ramboll Developer Hub.dc.html lines 16–31) plus the base font/colour the
+ * design sets on its root wrapper. Values are verbatim; do not reformat them.
+ */
+
+html, body { margin: 0; padding: 0; background: #061021; }
+* { box-sizing: border-box; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(155,173,197,0.18); border-radius: 8px; border: 3px solid #061021; }
+::-webkit-scrollbar-track { background: transparent; }
+input::placeholder, textarea::placeholder { color: #6984A8; opacity: 0.7; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes driftA { 0% { transform: translate(0,0) scale(1); } 50% { transform: translate(60px,-40px) scale(1.12); } 100% { transform: translate(0,0) scale(1); } }
+@keyframes driftB { 0% { transform: translate(0,0) scale(1); } 50% { transform: translate(-70px,50px) scale(1.08); } 100% { transform: translate(0,0) scale(1); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulseDot { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes popIn { 0% { opacity: 0; transform: scale(0.85); } 60% { transform: scale(1.04); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes ringPulse { 0% { box-shadow: 0 0 0 0 rgba(0,152,235,0.35); } 100% { box-shadow: 0 0 0 22px rgba(0,152,235,0); } }
+@keyframes edgeDraw { to { stroke-dashoffset: 0; } }
+
+/* Base typography/colour — from the design's root wrapper div (source line 36). */
+body { font-family: 'Nunito', system-ui, sans-serif; color: #E6EAF0; }

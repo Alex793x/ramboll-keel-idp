@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- @dsCard group="Components" name="Buttons" subtitle="Primary · Secondary · Ghost · Spot — pill, bold, Ramboll-feel" viewport="700x260" -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="_card.css" />
+<style>
+  body { padding: 24px; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 14px; }
+  .lbl { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--fg-muted); width: 80px; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="lbl">PRIMARY</div>
+    <button class="btn">Get in touch</button>
+    <button class="btn" style="background:#05326e">Hovered</button>
+    <button class="btn btn--sm">Small</button>
+    <button class="btn btn--lg">Large CTA</button>
+  </div>
+  <div class="row">
+    <div class="lbl">SECONDARY</div>
+    <button class="btn btn--secondary">Explore work</button>
+    <button class="btn btn--secondary" style="background:#05326e;color:#fff">Hovered</button>
+    <button class="btn btn--secondary btn--sm">Small</button>
+  </div>
+  <div class="row">
+    <div class="lbl">GHOST</div>
+    <button class="btn btn--ghost">Read more →</button>
+    <button class="btn btn--ghost" style="background:#e5f4fd">Hovered</button>
+  </div>
+  <div class="row">
+    <div class="lbl">SPOT</div>
+    <button class="btn btn--spot">Apply now</button>
+  </div>
+</body>
+</html>

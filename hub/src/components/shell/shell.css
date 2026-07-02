@@ -1,0 +1,47 @@
+/*
+ * App shell + sign-in hover states (design source `style-hover` attributes).
+ * Base values that the hover variant overrides live here too (instead of in
+ * inline styles) so the :hover rules win without `!important`.
+ */
+
+/* Sign-in "Continue with Microsoft" button (source line 49) */
+.rdh-shell-signin {
+  background: #0098EB;
+  transition: background 150ms, transform 150ms;
+}
+.rdh-shell-signin:hover {
+  background: #33ADEF;
+  transform: translateY(-1px);
+}
+
+/* Sidebar "+ Initialize project" CTA (source line 71) */
+.rdh-shell-cta {
+  background: #0098EB;
+  transition: background 150ms;
+}
+.rdh-shell-cta:hover {
+  background: #33ADEF;
+}
+
+/* Sidebar nav items (source lines 78, 954–961). The :hover rule is declared
+   after the active modifier so hover overrides the active background, exactly
+   like the source's style-hover does. */
+.rdh-shell-navitem {
+  background: transparent;
+  transition: background 130ms, color 130ms;
+}
+.rdh-shell-navitem--active {
+  background: rgba(0,152,235,0.14);
+}
+.rdh-shell-navitem:hover {
+  background: rgba(204,234,251,0.05);
+}
+
+/* Topbar search pill (source line 102) */
+.rdh-shell-search {
+  border: 1px solid rgba(155,173,197,0.16);
+  transition: border-color 150ms;
+}
+.rdh-shell-search:hover {
+  border-color: rgba(102,193,243,0.5);
+}

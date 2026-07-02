@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- @dsCard group="Colors" name="Spot colors" subtitle="Field & Sand — CTA emphasis only, used sparingly" viewport="700x220" -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="_card.css" />
+<style>
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .swatch {
+    height: 120px;
+    border-radius: 12px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    color: var(--ocean);
+  }
+  .name { font-weight: 800; font-size: 18px; letter-spacing: -0.01em; }
+  .hex { font-family: var(--font-mono); font-size: 13px; }
+  .role { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+  .note { font-size: 11px; color: var(--ocean); opacity: 0.75; margin-top: 10px; font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="swatch" style="background:#ff8855">
+      <div class="role">Spot · CTAs only</div>
+      <div>
+        <div class="name">Field</div>
+        <div class="hex">#FF8855</div>
+      </div>
+    </div>
+    <div class="swatch" style="background:#ffe682">
+      <div class="role">Spot · CTAs only</div>
+      <div>
+        <div class="name">Sand</div>
+        <div class="hex">#FFE682</div>
+      </div>
+    </div>
+  </div>
+  <div class="note">Use sparingly — once per surface, never as decoration.</div>
+</body>
+</html>

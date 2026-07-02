@@ -1,0 +1,12 @@
+/*
+ * Projects screen hover state — exact port of the design's `style-hover`
+ * attribute on the table row (Ramboll Developer Hub.dc.html line 205).
+ */
+
+.projects-row {
+  cursor: pointer;
+  transition: background 120ms;
+}
+.projects-row:hover {
+  background: rgba(204, 234, 251, 0.04);
+}

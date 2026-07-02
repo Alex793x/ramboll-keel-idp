@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- @dsCard group="Components" name="Top navigation" subtitle="Sticky header pattern — logo, links, search, CTA" viewport="700x72" -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="_card.css" />
+<style>
+  body { padding: 0; margin: 0; }
+  .nav {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 72px; padding: 0 24px;
+    background: var(--ramboll-white);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .left { display: flex; align-items: center; gap: 28px; }
+  .logo { height: 30px; width: auto; }
+  .links { display: flex; gap: 22px; }
+  .link {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ocean);
+    cursor: pointer;
+    padding: 4px 0;
+    border-bottom: 2px solid transparent;
+  }
+  .link.active { border-bottom-color: var(--cyan-100); }
+  .right { display: flex; gap: 10px; align-items: center; }
+  .icon-btn {
+    width: 38px; height: 38px;
+    border-radius: 9999px;
+    background: var(--pebble-40);
+    border: none;
+    color: var(--ocean);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .icon-btn svg { width: 18px; height: 18px; }
+</style>
+</head>
+<body>
+  <div class="nav">
+    <div class="left">
+      <img class="logo" src="../assets/ramboll-logo-cyan.png" alt="Ramboll" />
+      <div class="links">
+        <span class="link active">Services</span>
+        <span class="link">Projects</span>
+        <span class="link">Insights</span>
+        <span class="link">About</span>
+        <span class="link">Careers</span>
+      </div>
+    </div>
+    <div class="right">
+      <button class="icon-btn" aria-label="Search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      </button>
+      <button class="btn btn--sm">Contact</button>
+    </div>
+  </div>
+</body>
+</html>

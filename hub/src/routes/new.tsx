@@ -1,56 +1,35 @@
 /**
- * `/new` — hosts the project wizard. Accepts an optional `?blueprint=` search
- * param (set by the catalog CTA). Requires a signed-in session; redirects to
- * `/login` otherwise.
+ * `/new` — the "Initialize a project" golden path. Thin route: wraps the
+ * wizard in the AppShell and holds the wizard|created view state (design
+ * `state.view`, lines 600/698). Provisioning itself lives in `WizardScreen`;
+ * once it completes, the created snapshot swaps this route to `CreatedScreen`.
  */
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
-import { Wizard } from "../components/Wizard";
-import { useSession } from "../hooks/useSession";
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useState } from 'react';
+import { AppShell } from '../components/shell/AppShell';
+import { CreatedScreen } from '../components/wizard/CreatedScreen';
+import { WizardScreen } from '../components/wizard/WizardScreen';
+import type { CreatedProject } from '../lib/wizard-model';
 
-interface NewSearch {
-  blueprint?: string;
-}
-
-export const Route = createFileRoute("/new")({
-  validateSearch: (search: Record<string, unknown>): NewSearch => ({
-    // Coerce an empty/blank `?blueprint=` to undefined so the default applies (an empty
-    // string would otherwise survive `??` and leave the wizard permanently unsubmittable).
-    blueprint:
-      typeof search.blueprint === "string" && search.blueprint.trim().length > 0
-        ? search.blueprint
-        : undefined,
-  }),
+export const Route = createFileRoute('/new')({
   component: NewProjectPage,
 });
 
 function NewProjectPage() {
-  const { blueprint } = Route.useSearch();
-  const { session, ready } = useSession();
+  const [created, setCreated] = useState<CreatedProject | null>(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (ready && !session) {
-      void navigate({ to: "/login" });
-    }
-  }, [ready, session, navigate]);
-
-  if (ready && !session) {
-    return (
-      <div className="rb-card rb-center">
-        <p className="rb-muted">Please sign in to start a project.</p>
-      </div>
-    );
-  }
-
   return (
-    <>
-      <h1>New project</h1>
-      <p className="rb-muted">
-        Pick a department and owners, fill in the details, then initialize a
-        standards-compliant repository.
-      </p>
-      <Wizard blueprint={blueprint || "python-service"} />
-    </>
+    <AppShell>
+      {created ? (
+        <CreatedScreen
+          created={created}
+          onGoHome={() => void navigate({ to: '/' })}
+          onGoProjects={() => void navigate({ to: '/projects' })}
+        />
+      ) : (
+        <WizardScreen onCreated={setCreated} />
+      )}
+    </AppShell>
   );
 }

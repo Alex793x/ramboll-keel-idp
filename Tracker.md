@@ -102,6 +102,36 @@ skeptically re-checked. Outcome:
 
 ---
 
+## UI redesign port (v2.1 — "Ramboll Developer Hub" control room)
+
+Ported `Ramble IDP Hub MVP Design/Ramboll Developer Hub.dc.html` **one-to-one** into the TanStack
+Start hub as typed React components via a 5-agent MemTrace fleet (all episodes class A):
+
+| Agent | Delivered |
+| --- | --- |
+| Fleet-UI-Foundation | `design/tokens.ts` (22 exact hexes, CYAN/OCEAN/spot scales), `global.css` (9 verbatim keyframes), `PathIcon`/`SearchIcon`, `useClock`, fonts (Nunito + JetBrains Mono), logo assets, root route |
+| Fleet-UI-Shell | Sign-in ("Continue with Microsoft", drift orbs, grid mask) + `AppShell` (248px sidebar, nav model + SOON chips, ⌘K topbar, live CET clock) |
+| Fleet-UI-HomeProjects | Home (greeting/stats/projects/updates/recommended) + Projects table + exact demo data |
+| Fleet-UI-KB | `diagram-engine.ts` (flow DAG + sequence layout, 10 semantic KINDS), `docs-data.ts` (3 full docs), KB home + doc reader (rich text, callouts, code copy, steps, tables, interactive diagrams, TOC) |
+| Fleet-UI-Wizard | Wizard (Identity/Contributors/Service components), Live Blueprint, 6-step provisioning overlay (750ms), Created screen; pure `wizard-model` with fast-check |
+
+**Gates:** `tsc` clean · Vitest **140/140** · `npm run build` green. **Visually verified live**
+(Claude Preview): sign-in → home → projects → KB → doc reader with rendered diagrams → wizard →
+provisioning → created, all matching the design.
+
+**Findings & decisions:**
+- **D-09** The design source's `ramboll-logo-white.png` is a blank PNG (0 visible pixels in every
+  copy in the design folder — the prototype itself couldn't render it). Reconstructed faithfully by
+  recoloring the real cyan wordmark's pixels white (alpha preserved). Design folder left pristine.
+- **D-10** The new wizard is a **design-faithful port**: multi-service blueprints (FE/API/WK/DP/INF),
+  GBAs, contributors, *simulated* 6-step provisioning — exactly as the prototype. The keel-api
+  client stays in `hub/src/lib/api.ts`; wiring the multi-service wizard to the Rust engine requires
+  backend blueprint work and is deliberate follow-up, not silent drift.
+- Old light-theme UI (AppHeader/Footer, `rb-*` styles, dept/users wizard) removed; faithful quirks
+  ported verbatim and documented in `tracker/ui-*.md` (e.g. the literal `3 GBAS` header).
+
+---
+
 ## Decisions log
 
 - **D-08** Memtrace-driven coherence pass (style fingerprint + centrality). Extracted the duplicated

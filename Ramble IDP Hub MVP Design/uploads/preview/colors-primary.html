@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- @dsCard group="Colors" name="Primary colors" subtitle="Cyan + White — the two-color brand identity" viewport="700x200" -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="_card.css" />
+<style>
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .swatch {
+    height: 130px;
+    border-radius: 12px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    color: var(--ramboll-white);
+    box-shadow: var(--shadow-sm);
+  }
+  .swatch.light { color: var(--ocean); border: 1px solid var(--border-subtle); }
+  .name { font-weight: 800; font-size: 18px; letter-spacing: -0.01em; }
+  .hex { font-family: var(--font-mono); font-size: 13px; opacity: 0.9; }
+  .role { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.85; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="swatch" style="background:#0098eb">
+      <div class="role">Primary</div>
+      <div>
+        <div class="name">Cyan</div>
+        <div class="hex">#0098EB · RGB 0 152 235</div>
+      </div>
+    </div>
+    <div class="swatch light" style="background:#ffffff">
+      <div class="role">Primary</div>
+      <div>
+        <div class="name">White</div>
+        <div class="hex">#FFFFFF · RGB 255 255 255</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

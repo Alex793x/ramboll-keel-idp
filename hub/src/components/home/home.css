@@ -1,0 +1,44 @@
+/*
+ * Home screen hover states — exact port of the design's `style-hover`
+ * attributes (Ramboll Developer Hub.dc.html lines 127, 141, 145, 167).
+ * Base border/background live here too so `:hover` can override them
+ * (inline styles would always win over the hover selector).
+ */
+
+.home-stat-card {
+  background: #0A1B33;
+  border: 1px solid rgba(155, 173, 197, 0.14);
+  border-radius: 12px;
+  transition: border-color 150ms;
+}
+.home-stat-card:hover {
+  border-color: rgba(102, 193, 243, 0.45);
+}
+
+.home-project-card {
+  background: #0A1B33;
+  border: 1px solid rgba(155, 173, 197, 0.14);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 150ms, transform 150ms;
+}
+.home-project-card:hover {
+  border-color: rgba(102, 193, 243, 0.5);
+  transform: translateY(-2px);
+}
+
+.home-view-all {
+  color: #66C1F3;
+  cursor: pointer;
+  text-decoration: none;
+}
+.home-view-all:hover {
+  color: #CCEAFB;
+}
+
+.home-update-row {
+  cursor: pointer;
+}
+.home-update-row:hover {
+  background: rgba(204, 234, 251, 0.04);
+}

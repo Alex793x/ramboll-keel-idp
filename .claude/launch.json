@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hub-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "dev", "--port", "3177"],
+      "cwd": "hub",
+      "port": 3177,
+      "autoPort": false
+    }
+  ]
+}

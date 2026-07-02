@@ -1,0 +1,33 @@
+/*
+ * Wizard hover/focus states — ported EXACTLY from the design's `style-focus` /
+ * `style-hover` attributes in `Ramboll Developer Hub.dc.html`:
+ * - inputs (lines 415, 420), type cards (line 456), service remove ✕ (line 477),
+ *   Initialize button (line 485), created-screen buttons (lines 556–557).
+ * Base styles stay inline in the components; only pseudo-states live here.
+ */
+
+.wz-input:focus {
+  border-color: #0098EB;
+  box-shadow: 0 0 0 3px rgba(0, 152, 235, 0.2);
+}
+
+.wz-type-card:hover {
+  border-color: #0098EB;
+  background: rgba(0, 152, 235, 0.07);
+}
+
+.wz-remove:hover {
+  color: #FF8855;
+}
+
+.wz-init:not(:disabled):hover {
+  filter: brightness(1.12);
+}
+
+.wz-btn-home:hover {
+  background: #33ADEF;
+}
+
+.wz-btn-projects:hover {
+  border-color: #66C1F3;
+}

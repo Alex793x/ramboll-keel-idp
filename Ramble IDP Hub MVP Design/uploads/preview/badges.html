@@ -1,0 +1,46 @@
+<!doctype html>
+<!-- @dsCard group="Components" name="Badges & tags" subtitle="Category tags, status pills, featured chips" viewport="700x160" -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="_card.css" />
+<style>
+  body { padding: 24px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 9999px;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .t-cyan    { background: var(--cyan-20); color: var(--ocean); }
+  .t-grass   { background: var(--grass-20); color: var(--forest); }
+  .t-heath   { background: var(--heath-20); color: var(--heath); }
+  .t-pebble  { background: var(--pebble-40); color: var(--mountain); }
+  .t-sand    { background: var(--sand); color: #6a4a00; }
+  .t-field   { background: var(--field); color: #6a2900; }
+  .t-cyan-solid { background: var(--cyan-100); color: #fff; }
+  .t-ocean-solid { background: var(--ocean); color: #fff; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 8px; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <span class="tag t-cyan">Energy</span>
+    <span class="tag t-grass">Climate &amp; nature</span>
+    <span class="tag t-heath">Water</span>
+    <span class="tag t-pebble">Transport</span>
+    <span class="tag t-sand">Buildings</span>
+  </div>
+  <div class="row">
+    <span class="tag t-cyan-solid"><span class="dot"></span>Live</span>
+    <span class="tag t-grass" style="color:#125a40"><span class="dot"></span>Completed</span>
+    <span class="tag t-field"><span class="dot"></span>At risk</span>
+    <span class="tag t-pebble"><span class="dot"></span>Inactive</span>
+    <span class="tag t-ocean-solid">Featured</span>
+  </div>
+</body>
+</html>

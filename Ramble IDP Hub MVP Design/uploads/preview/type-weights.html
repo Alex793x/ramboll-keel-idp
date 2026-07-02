@@ -1,0 +1,28 @@
+<!doctype html>
+<!-- @dsCard group="Type" name="Nunito weights" subtitle="Light to Black — 300, 400, 500, 600, 700, 800, 900" viewport="700x180" -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="_card.css" />
+<style>
+  body { padding: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; align-items: end; }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .wt { font-family: var(--font-sans); font-size: 36px; color: var(--ocean); line-height: 1; }
+  .nm { font-family: var(--font-mono); font-size: 10px; color: var(--fg-muted); font-weight: 600; text-align: center; }
+  .strong { font-family: var(--font-mono); font-size: 10px; color: var(--ocean); font-weight: 700; }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div class="col"><div class="wt" style="font-weight:300">Aa</div><div class="strong">300</div><div class="nm">Light</div></div>
+    <div class="col"><div class="wt" style="font-weight:400">Aa</div><div class="strong">400</div><div class="nm">Regular</div></div>
+    <div class="col"><div class="wt" style="font-weight:500">Aa</div><div class="strong">500</div><div class="nm">Medium</div></div>
+    <div class="col"><div class="wt" style="font-weight:600">Aa</div><div class="strong">600</div><div class="nm">SemiBold</div></div>
+    <div class="col"><div class="wt" style="font-weight:700">Aa</div><div class="strong">700</div><div class="nm">Bold</div></div>
+    <div class="col"><div class="wt" style="font-weight:800">Aa</div><div class="strong">800</div><div class="nm">ExtraBold</div></div>
+    <div class="col"><div class="wt" style="font-weight:900">Aa</div><div class="strong">900</div><div class="nm">Black</div></div>
+  </div>
+  <div style="margin-top: 16px; font-family: var(--font-sans); font-size: 11px; color: var(--fg-muted); font-weight: 600;">Nunito · Body 400 · Emphasis 600 · Headlines 800</div>
+</body>
+</html>

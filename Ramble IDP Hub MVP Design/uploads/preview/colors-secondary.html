@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- @dsCard group="Colors" name="Secondary colors" subtitle="Nature-named neutrals: Ocean, Forest, Heath, Mountain, Grass, Pebble" viewport="700x270" -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="_card.css" />
+<style>
+  .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .swatch {
+    height: 110px;
+    border-radius: 10px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    color: var(--ramboll-white);
+  }
+  .light { color: var(--ocean); }
+  .name { font-weight: 800; font-size: 15px; letter-spacing: -0.01em; }
+  .hex { font-family: var(--font-mono); font-size: 11px; opacity: 0.9; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="swatch" style="background:#05326e"><div class="name">Ocean</div><div class="hex">#05326E</div></div>
+    <div class="swatch" style="background:#125a40"><div class="name">Forest</div><div class="hex">#125A40</div></div>
+    <div class="swatch" style="background:#62294b"><div class="name">Heath</div><div class="hex">#62294B</div></div>
+    <div class="swatch" style="background:#273943"><div class="name">Mountain</div><div class="hex">#273943</div></div>
+    <div class="swatch light" style="background:#add095"><div class="name">Grass</div><div class="hex">#ADD095</div></div>
+    <div class="swatch light" style="background:#e3e1d8"><div class="name">Pebble</div><div class="hex">#E3E1D8</div></div>
+  </div>
+</body>
+</html>

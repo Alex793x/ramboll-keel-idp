@@ -1,0 +1,34 @@
+<!doctype html>
+<!-- @dsCard group="Colors" name="Ocean scale" subtitle="Ocean tints 100→10%" viewport="700x160" -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="_card.css" />
+<style>
+  .scale { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; }
+  .step {
+    height: 100px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    color: var(--ramboll-white);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .step.light { color: var(--ocean); }
+  .pct { font-size: 14px; font-weight: 800; font-family: var(--font-sans); letter-spacing: -0.01em; }
+</style>
+</head>
+<body>
+  <div class="scale">
+    <div class="step"       style="background:#05326e"><div class="pct">100</div>#05326E</div>
+    <div class="step"       style="background:#375b8b"><div class="pct">80</div>#375B8B</div>
+    <div class="step"       style="background:#6984a8"><div class="pct">60</div>#6984A8</div>
+    <div class="step light" style="background:#9badc5"><div class="pct">40</div>#9BADC5</div>
+    <div class="step light" style="background:#cdd6e2"><div class="pct">20</div>#CDD6E2</div>
+    <div class="step light" style="background:#e6eaf0"><div class="pct">10</div>#E6EAF0</div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,60 @@
+/*
+ * Knowledge Base hover/focus states — exact `style-hover` values from the
+ * design source (`Ramboll Developer Hub.dc.html`, KB screens). Base values
+ * that a hover overrides live here too, so plain CSS specificity works
+ * (inline styles would otherwise always win).
+ */
+
+/* Search pill (source line 228) */
+.kb-search {
+  border: 1px solid rgba(155, 173, 197, 0.16);
+  transition: border-color 150ms;
+}
+.kb-search:hover {
+  border-color: rgba(102, 193, 243, 0.5);
+}
+
+/* Guide card (source line 240) */
+.kb-card {
+  border: 1px solid rgba(155, 173, 197, 0.14);
+  transition: border-color 150ms, transform 150ms;
+}
+.kb-card:hover {
+  border-color: rgba(102, 193, 243, 0.55);
+  transform: translateY(-2px);
+}
+
+/* Back link (source line 272) */
+.kb-back {
+  color: #66c1f3;
+  transition: color 120ms;
+}
+.kb-back:hover {
+  color: #cceafb;
+}
+
+/* COPY button on code blocks (source line 307) */
+.kb-copy {
+  transition: background 150ms;
+}
+.kb-copy:hover {
+  background: rgba(0, 152, 235, 0.12);
+}
+
+/* Table of contents items (source lines 378 + 898) */
+.kb-toc-item {
+  color: #9badc5;
+  transition: color 120ms;
+}
+.kb-toc-item:hover {
+  color: #ffffff;
+}
+
+/* "Ask the agent about this page" pill (source line 389) */
+.kb-ask {
+  background: transparent;
+  transition: background 150ms;
+}
+.kb-ask:hover {
+  background: rgba(0, 152, 235, 0.12);
+}

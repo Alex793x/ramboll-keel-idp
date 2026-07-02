@@ -1,0 +1,6 @@
+/* Shared preview-card chrome — keeps every card visually consistent. */
+@import url("../colors_and_type.css");
+
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); }
+body { padding: 20px; box-sizing: border-box; }
+.card { width: 100%; box-sizing: border-box; }

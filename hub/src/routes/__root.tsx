@@ -1,6 +1,8 @@
 /**
- * Root route — the document shell + Ramboll-branded app chrome (SPEC §8):
- * navy header bar "Ramboll Developer Platform · Keel", gold rule, footer tagline.
+ * Root route — bare document shell for the Ramboll Developer Hub design.
+ * Loads the design's Google Fonts + global stylesheet and renders the matched
+ * route; screens provide their own chrome (sidebar/topbar), so there is no
+ * shared header/footer here.
  */
 import {
   HeadContent,
@@ -8,23 +10,23 @@ import {
   Scripts,
   createRootRoute,
 } from "@tanstack/react-router";
-import tokensCss from "../styles/tokens.css?url";
-import { AppHeader } from "../components/AppHeader";
-import { AppFooter } from "../components/AppFooter";
+import globalCss from "../design/global.css?url";
 
 export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Ramboll Developer Platform · Keel" },
-      {
-        name: "description",
-        content:
-          "Keel — self-service project initialization for the Ramboll Developer Platform.",
-      },
+      { title: "Ramboll Developer Hub" },
     ],
-    links: [{ rel: "stylesheet", href: tokensCss }],
+    links: [
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap",
+      },
+      { rel: "stylesheet", href: globalCss },
+    ],
   }),
   component: RootComponent,
 });
@@ -32,13 +34,7 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <RootDocument>
-      <div className="rb-app">
-        <AppHeader />
-        <main className="rb-main">
-          <Outlet />
-        </main>
-        <AppFooter />
-      </div>
+      <Outlet />
     </RootDocument>
   );
 }

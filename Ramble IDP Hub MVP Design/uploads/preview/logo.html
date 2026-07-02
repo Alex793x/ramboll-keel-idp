@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- @dsCard group="Brand" name="Logo" subtitle="Wordmark variants — cyan pill, white-on-ocean, white-on-cyan, cyan-on-pebble" viewport="700x340" -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="_card.css" />
+<style>
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .swatch {
+    border-radius: 12px;
+    padding: 28px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 110px;
+  }
+  .swatch img { max-width: 240px; max-height: 70px; display: block; }
+  .on-cyan   { background: var(--cyan-100); }
+  .on-white  { background: var(--ramboll-white); border: 1px solid var(--border-subtle); }
+  .on-ocean  { background: var(--ocean); }
+  .on-pebble { background: var(--pebble-40); }
+  .lbl {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+    margin-top: 8px;
+  }
+  .item { display: flex; flex-direction: column; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="item">
+      <div class="swatch on-white"><img src="../assets/ramboll-logo-cyan.png" alt="Ramboll" /></div>
+      <div class="lbl">Cyan pill / on light</div>
+    </div>
+    <div class="item">
+      <div class="swatch on-ocean"><img src="../assets/ramboll-logo-white.png" alt="Ramboll" /></div>
+      <div class="lbl">White / on Ocean</div>
+    </div>
+    <div class="item">
+      <div class="swatch on-cyan"><img src="../assets/ramboll-logo-white.png" alt="Ramboll" /></div>
+      <div class="lbl">White / on Cyan</div>
+    </div>
+    <div class="item">
+      <div class="swatch on-pebble"><img src="../assets/ramboll-logo-cyan-on-transparent.png" alt="Ramboll" /></div>
+      <div class="lbl">Cyan / on Pebble</div>
+    </div>
+  </div>
+</body>
+</html>

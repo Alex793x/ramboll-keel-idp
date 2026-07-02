@@ -112,13 +112,19 @@ cargo run -p keel-api
 cd hub && npm run dev
 ```
 
-Then in the hub:
+Then in the hub (the **Ramboll Developer Hub** control-room UI, ported 1:1 from
+`Ramble IDP Hub MVP Design/`):
 
-1. **Sign in** with any `@ramboll.com` email (mock SSO).
-2. **Select a department** (Buildings, Transport, Water, Energy, Environment & Health, Platform
-   Engineering) and **select the owning users**.
-3. **Fill project details** — name, service kind (`rest-api` / `worker`), description.
-4. **Submit** → watch the 8 steps run live → a **real GitHub repository** appears with its URL.
+1. **Sign in** with *Continue with Microsoft* (mock SSO stand-in for Entra ID).
+2. Explore **Home**, **Projects**, and the **Knowledge Base** (living docs with declarative
+   flow/sequence diagrams).
+3. **Initialize a project** — name it, pick a **Global Business Area** and **contributors**, add
+   **service components** (FE / API / Worker / Data pipeline / Infra) and watch the live blueprint.
+4. **Initialize** runs the design's simulated 6-step provisioning and lands on the *created* screen.
+
+> **Note:** the redesigned hub wizard is a design-faithful port (multi-service blueprints —
+> simulated provisioning). Creating **real** GitHub repositories runs through `keel-api` /
+> `keel-cli` below; wiring the new multi-service wizard to the engine is tracked as follow-up work.
 
 ### Headless path (CLI / E2E)
 

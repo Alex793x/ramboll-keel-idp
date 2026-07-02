@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- @dsCard group="Components" name="Content card" subtitle="Image-led editorial card with kicker, title, arrow" viewport="700x260" -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="_card.css" />
+<style>
+  body { padding: 24px; background: var(--pebble-20); }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .card {
+    background: var(--ramboll-white);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+  }
+  .photo {
+    height: 100px;
+    background: linear-gradient(135deg, #cdd6e2, #9badc5);
+    position: relative;
+  }
+  .photo.alt { background: linear-gradient(135deg, #cee3bf, #719c8c); }
+  .photo::after {
+    content: 'Photo';
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: rgba(5,50,110,0.5); letter-spacing: 0.1em;
+  }
+  .body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 6px; }
+  .kicker { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cyan-100); }
+  .title { font-size: 16px; font-weight: 800; color: var(--ocean); line-height: 1.2; }
+  .desc { font-size: 13px; color: var(--fg-muted); line-height: 1.4; }
+  .arrow { font-size: 13px; color: var(--ocean); font-weight: 700; margin-top: 4px; }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <article class="card">
+      <div class="photo"></div>
+      <div class="body">
+        <div class="kicker">Energy</div>
+        <div class="title">Designing offshore wind at scale</div>
+        <div class="desc">Lessons from twenty years of grid build-out.</div>
+        <div class="arrow">Read more →</div>
+      </div>
+    </article>
+    <article class="card">
+      <div class="photo alt"></div>
+      <div class="body">
+        <div class="kicker">Buildings</div>
+        <div class="title">Whole-life carbon, demystified</div>
+        <div class="desc">A practical method for LCA across building types.</div>
+        <div class="arrow">Read more →</div>
+      </div>
+    </article>
+  </div>
+</body>
+</html>

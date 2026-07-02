@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- @dsCard group="Colors" name="Semantic shapes" subtitle="Fill/stroke pairs for diagram & UI shapes" viewport="700x260" -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="_card.css" />
+<style>
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .shape {
+    height: 64px;
+    border-radius: 10px;
+    border: 1.5px solid;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--mountain);
+    letter-spacing: 0.04em;
+  }
+  .shape.on-dark { color: var(--ramboll-white); }
+  .shape.dashed { border-style: dashed; color: var(--mountain); }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div class="shape" style="background:#0098eb; border-color:#05326e; color:#fff">Primary</div>
+    <div class="shape" style="background:#33adef; border-color:#05326e; color:#fff">Secondary</div>
+    <div class="shape" style="background:#99d6f7; border-color:#05326e">Tertiary</div>
+    <div class="shape" style="background:#cceafb; border-color:#0098eb">Decision</div>
+    <div class="shape" style="background:#ffe682; border-color:#c27a00">Start / Trigger</div>
+    <div class="shape" style="background:#add095; border-color:#125a40">End / Success</div>
+    <div class="shape" style="background:#ff8855; border-color:#b34400">Warning / Error</div>
+    <div class="shape" style="background:#e0d4db; border-color:#62294b">AI / LLM</div>
+    <div class="shape dashed" style="background:#e3e1d8; border-color:#273943">Inactive</div>
+    <div class="shape" style="background:#fff; border-color:#273943">Neutral / Outline</div>
+  </div>
+</body>
+</html>

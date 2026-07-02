@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- @dsCard group="Components" name="Form fields" subtitle="Text input, select, checkbox — 8px radius" viewport="700x280" -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="_card.css" />
+<style>
+  body { padding: 20px; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  label { font-size: 13px; font-weight: 700; color: var(--ocean); }
+  input, select {
+    font-family: var(--font-sans);
+    font-size: 15px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--ramboll-white);
+    color: var(--fg);
+    outline: none;
+    transition: border-color 120ms, box-shadow 120ms;
+  }
+  input:focus, select:focus { border-color: var(--cyan-100); box-shadow: 0 0 0 3px rgba(0,152,235,0.2); }
+  .hint { font-size: 12px; color: var(--fg-muted); }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--fg); }
+  .check input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--cyan-100); }
+</style>
+</head>
+<body>
+  <div class="field">
+    <label>Email</label>
+    <input type="email" placeholder="name@company.com" value="" />
+    <div class="hint">Used for newsletter & event updates only.</div>
+  </div>
+  <div class="field">
+    <label>Service area</label>
+    <select>
+      <option>Buildings</option>
+      <option>Energy</option>
+      <option>Water</option>
+    </select>
+  </div>
+  <label class="check"><input type="checkbox" checked /> I agree to Ramboll's privacy policy</label>
+</body>
+</html>
