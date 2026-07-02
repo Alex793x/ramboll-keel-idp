@@ -46,3 +46,6 @@ __pycache__/
 .env.*
 !.env.example
 .DS_Store
+
+# Proptest transient failure seeds (property tests regenerate cases each run)
+*.proptest-regressions
