@@ -31,3 +31,43 @@
 .wz-btn-projects:hover {
   border-color: #66C1F3;
 }
+
+/*
+ * v5 (SPEC §19.5) — inline service-name field. Base styles live here (not
+ * inline) so the :hover/:focus/error states can cascade; every value is a
+ * design token: body #E6EAF0, dim #6984A8, cyan500 #0098EB, clay #FF8855,
+ * JetBrains Mono. The error class outranks :focus — a bad name stays clay
+ * while being edited.
+ */
+.wz-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  color: #E6EAF0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(155, 173, 197, 0.25);
+  border-radius: 0;
+  outline: none;
+  padding: 2px 1px;
+  min-width: 0;
+  transition: border-color 120ms, color 120ms;
+}
+
+.wz-name::placeholder {
+  color: #6984A8;
+}
+
+.wz-name:hover {
+  border-bottom-color: rgba(155, 173, 197, 0.45);
+}
+
+.wz-name:focus {
+  border-bottom-color: #0098EB;
+}
+
+.wz-name.wz-name-err,
+.wz-name.wz-name-err:hover,
+.wz-name.wz-name-err:focus {
+  border-bottom-color: #FF8855;
+  color: #FF8855;
+}

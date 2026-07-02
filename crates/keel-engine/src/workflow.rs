@@ -13,6 +13,7 @@
 //! fallbacks, service-blueprint resolution, per-service context building, and the committed
 //! `branch-protection.json` governance record.
 
+pub(crate) mod add_service;
 mod mono;
 mod multi;
 
@@ -252,11 +253,16 @@ fn available_service_blueprints(services_root: &Path) -> String {
 }
 
 /// Build the per-service template contexts, index-aligned with `req.services` (repo names and
-/// monolith dirs both follow keel-core's shared ordinal rule).
-fn build_service_ctxs(req: &InitRequest) -> Vec<ServiceCtx> {
-    let names = service_repo_names(&req.project_name, &req.services);
-    let dirs = service_dirs(&req.services);
-    req.services
+/// monolith dirs both follow keel-core's shared naming rule — explicit v5 names win, otherwise
+/// the v4 ordinals).
+///
+/// # Errors
+/// Propagates [`keel_core::resolve_service_names`] validation errors (invalid/duplicate names).
+fn build_service_ctxs(req: &InitRequest) -> Result<Vec<ServiceCtx>> {
+    let names = service_repo_names(&req.project_name, &req.services)?;
+    let dirs = service_dirs(&req.services)?;
+    Ok(req
+        .services
         .iter()
         .zip(names.into_iter().zip(dirs))
         .map(|(sel, (repo_name, dir))| ServiceCtx {
@@ -266,5 +272,5 @@ fn build_service_ctxs(req: &InitRequest) -> Vec<ServiceCtx> {
             label: sel.service_type.label().to_owned(),
             repo_name,
         })
-        .collect()
+        .collect())
 }

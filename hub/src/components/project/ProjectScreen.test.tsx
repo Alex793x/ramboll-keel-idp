@@ -266,11 +266,37 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+/** Minimal catalog for the add-service wiring test (popover fetches it lazily). */
+function fixtureCatalog() {
+  return [
+    { id: "wk", tag: "WK", label: "Worker", langs: [{ id: "python", name: "Python", available: true }] },
+  ];
+}
+
+/** Catalog-only add-service response (the demo-project shape, SPEC §19.4). */
+function fixtureAddServiceResponse() {
+  return {
+    service: { dir: "services/wk", type: "wk", lang: "python", name: "wk" },
+    repo: null,
+    materialized: false,
+    events: [
+      { step: 1, key: "form", title: "Validate form", status: "done", detail: "" },
+      { step: 2, key: "register", title: "Register in catalog", status: "done", detail: "" },
+    ],
+  };
+}
+
 function setup(overview?: () => Response | Promise<Response>) {
   const fetchImpl = vi.fn(async (input: string | URL | Request): Promise<Response> => {
     const url = String(input);
     if (url.includes("/api/projects/") && url.endsWith("/overview")) {
       return overview ? overview() : jsonResponse(fixtureOverview());
+    }
+    if (url.endsWith("/api/service-catalog")) {
+      return jsonResponse(fixtureCatalog());
+    }
+    if (url.includes("/api/projects/") && url.endsWith("/services")) {
+      return jsonResponse(fixtureAddServiceResponse());
     }
     throw new Error(`unexpected fetch: ${url}`);
   });
@@ -460,6 +486,35 @@ describe("ProjectScreen", () => {
     expect(
       fetchImpl.mock.calls.filter(([u]) => String(u).endsWith("/overview")),
     ).toHaveLength(2);
+  });
+
+  it("adding a service through the header popover refetches the overview", async () => {
+    const { fetchImpl } = setup();
+    await flush();
+
+    // The ghost chip sits at the end of the service-chip row.
+    fireEvent.click(screen.getByRole("button", { name: "+ Add service" }));
+    await flush(); // catalog fetch
+    fireEvent.click(screen.getByRole("button", { name: /Worker/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add service →" }));
+    await flush(); // POST resolves → catalog-only note (materialized:false)
+    expect(screen.getByText("catalog-only · demo project")).toBeInTheDocument();
+    expect(
+      fetchImpl.mock.calls.filter(([u]) => String(u).endsWith("/overview")),
+    ).toHaveLength(1);
+
+    // After the 2s note the popover closes and onAdded re-runs the useAsync.
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    await flush();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(
+      fetchImpl.mock.calls.filter(([u]) => String(u).endsWith("/overview")),
+    ).toHaveLength(2);
+    // The exact §19.4 body went over the wire.
+    const post = fetchImpl.mock.calls.find(([u]) => String(u).endsWith("/services"))!;
+    expect(String(post[0])).toBe("http://api.test/api/projects/RMB-EN-042/services");
   });
 
   it("shows the not-in-catalog state on a 404, with a back link", async () => {

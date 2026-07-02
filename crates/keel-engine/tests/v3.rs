@@ -330,7 +330,7 @@ fn monolith_local_dir_materializes_composed_tree() {
     assert_eq!(parsed.project, "monodemo");
     assert_eq!(parsed.version, 1);
     let dirs: Vec<&str> = parsed.services.iter().map(|s| s.dir.as_str()).collect();
-    assert_eq!(dirs, service_dirs(&sels));
+    assert_eq!(dirs, service_dirs(&sels).expect("valid selections"));
 
     // NO root-owned files anywhere under services/*.
     let service_files = walk_files(&repo_dir.join("services"));
@@ -435,7 +435,10 @@ proptest::proptest! {
                 RepoLayout::MultiRepo => {
                     let created: Vec<String> =
                         provider.created().iter().map(|r| r.name.clone()).collect();
-                    proptest::prop_assert_eq!(created, service_repo_names(&name, &services));
+                    proptest::prop_assert_eq!(
+                        created,
+                        service_repo_names(&name, &services).expect("valid selections")
+                    );
                     proptest::prop_assert_eq!(outcome.repos.len(), services.len());
                     proptest::prop_assert_eq!(&outcome.repo, &outcome.repos[0]);
                 }
@@ -463,7 +466,8 @@ proptest::proptest! {
         let files = provider.files_for(OWNER, &name);
         proptest::prop_assert!(!files.is_empty());
 
-        let dirs: BTreeSet<String> = service_dirs(&services).into_iter().collect();
+        let dirs: BTreeSet<String> =
+            service_dirs(&services).expect("valid selections").into_iter().collect();
         let mut seen_dirs: BTreeSet<String> = BTreeSet::new();
 
         for f in &files {

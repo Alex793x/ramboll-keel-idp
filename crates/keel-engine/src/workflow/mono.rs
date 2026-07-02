@@ -78,7 +78,7 @@ pub(super) fn run(
     );
 
     // ── Step 3: render + compose ─────────────────────────────────────────────
-    let ctxs = build_service_ctxs(req);
+    let ctxs = build_service_ctxs(req)?;
     let root_ctx = derive_context_v3(req, None, &ctxs);
     let mut files = keel_blueprint::render_with_context(&root_manifest, &root_dir, &root_ctx)?;
     for (plan, ctx) in plans.iter().zip(&ctxs) {
@@ -165,8 +165,9 @@ pub(super) fn run(
     Ok(outcome)
 }
 
-/// Drop root-owned files from one service's render and prefix the rest with `services/{dir}/`.
-fn compose_service_files(rendered: Vec<RenderedFile>, dir: &str) -> Vec<RenderedFile> {
+/// Drop root-owned files from one service's render and prefix the rest with `services/{dir}/`
+/// (shared with the v5 add-service path).
+pub(super) fn compose_service_files(rendered: Vec<RenderedFile>, dir: &str) -> Vec<RenderedFile> {
     rendered
         .into_iter()
         .filter(|f| !is_root_owned(&f.path))
@@ -184,7 +185,7 @@ fn is_root_owned(path: &str) -> bool {
 
 /// The engine-serialized `keel.services.json` (structurally guaranteed via serde).
 fn services_manifest_file(req: &InitRequest) -> Result<RenderedFile> {
-    let manifest = ServicesManifest::new(&req.project_name, &req.services);
+    let manifest = ServicesManifest::new(&req.project_name, &req.services)?;
     Ok(RenderedFile {
         path: "keel.services.json".to_owned(),
         contents: manifest.to_json()?,

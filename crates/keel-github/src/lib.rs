@@ -42,11 +42,21 @@ pub use gh::build_repo_create_argv;
 
 /// An in-memory fake that records everything it is asked to do, so engine workflow logic can be
 /// unit/property-tested deterministically and offline.
+///
+/// v5: also implements [`RepoProvider::read_file`] / [`RepoProvider::push_files`]. Files from
+/// `create_repo` count as the **default branch's** tree; `push_files` overlays a per-branch tree
+/// (branched from the default tree on first push); every push is recorded and exposed via
+/// [`FakeProvider::pushed`] for assertions.
 #[derive(Debug, Default)]
 pub struct FakeProvider {
     repos: RefCell<Vec<RepoCoordinates>>,
+    /// Default-branch tree per `owner/name` (what `create_repo` committed).
     files: RefCell<HashMap<String, Vec<RenderedFile>>>,
+    /// Per-branch overlay trees, keyed `owner/name#branch` (only branches that were pushed to).
+    branch_files: RefCell<HashMap<String, Vec<RenderedFile>>>,
     protections: RefCell<Vec<ProtectionPolicy>>,
+    /// Every `push_files` call: `(owner/name, branch, message)`, in order.
+    pushes: RefCell<Vec<(String, String, String)>>,
 }
 
 impl FakeProvider {
@@ -57,6 +67,10 @@ impl FakeProvider {
 
     fn key(owner: &str, name: &str) -> String {
         format!("{owner}/{name}")
+    }
+
+    fn branch_key(owner: &str, name: &str, branch: &str) -> String {
+        format!("{owner}/{name}#{branch}")
     }
 
     /// Repositories created so far.
@@ -73,6 +87,26 @@ impl FakeProvider {
             .get(&Self::key(owner, name))
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// The effective tree of `<owner>/<name>` at `branch`: the pushed overlay when one exists,
+    /// otherwise the default-branch tree (every branch forks from the default branch).
+    #[must_use]
+    pub fn files_on(&self, owner: &str, name: &str, branch: &str) -> Vec<RenderedFile> {
+        if let Some(tree) = self
+            .branch_files
+            .borrow()
+            .get(&Self::branch_key(owner, name, branch))
+        {
+            return tree.clone();
+        }
+        self.files_for(owner, name)
+    }
+
+    /// Every `push_files` call so far, as `(repo "owner/name", branch, message)` in call order.
+    #[must_use]
+    pub fn pushed(&self) -> Vec<(String, String, String)> {
+        self.pushes.borrow().clone()
     }
 
     /// Branch-protection policies recorded so far.
@@ -138,6 +172,58 @@ impl RepoProvider for FakeProvider {
         self.protections.borrow_mut().push(policy.clone());
         Ok(())
     }
+
+    fn read_file(
+        &self,
+        repo: &RepoCoordinates,
+        branch: &str,
+        path: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        if !self.repo_exists(&repo.owner, &repo.name)? {
+            return Err(keel_core::KeelError::Github(format!(
+                "read_file: repo {}/{} not created",
+                repo.owner, repo.name
+            )));
+        }
+        let tree = self.files_on(&repo.owner, &repo.name, branch);
+        Ok(tree
+            .iter()
+            .find(|f| f.path == path)
+            .map(|f| f.contents.clone()))
+    }
+
+    fn push_files(
+        &self,
+        repo: &RepoCoordinates,
+        branch: &str,
+        files: &[RenderedFile],
+        message: &str,
+    ) -> Result<()> {
+        if !self.repo_exists(&repo.owner, &repo.name)? {
+            return Err(keel_core::KeelError::Github(format!(
+                "push_files: repo {}/{} not created",
+                repo.owner, repo.name
+            )));
+        }
+        // Start from the branch's current tree (default tree on first push), then upsert by path
+        // — push_files overwrites paths but never deletes, like a real commit of these files.
+        let mut tree = self.files_on(&repo.owner, &repo.name, branch);
+        for f in files {
+            match tree.iter_mut().find(|existing| existing.path == f.path) {
+                Some(existing) => *existing = f.clone(),
+                None => tree.push(f.clone()),
+            }
+        }
+        self.branch_files
+            .borrow_mut()
+            .insert(Self::branch_key(&repo.owner, &repo.name, branch), tree);
+        self.pushes.borrow_mut().push((
+            Self::key(&repo.owner, &repo.name),
+            branch.to_owned(),
+            message.to_owned(),
+        ));
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -175,5 +261,83 @@ mod tests {
             .unwrap();
         let stored = p.created().pop().unwrap();
         assert_eq!(stored.branches, vec!["main", "dev", "staging"]);
+    }
+
+    // ── v5: read_file / push_files round-trip ───────────────────────────────
+
+    #[test]
+    fn fake_read_and_push_round_trip_per_branch() {
+        let p = FakeProvider::new();
+        let r = p.create_repo(&spec("o", "r")).unwrap();
+
+        // create_repo files count as the default branch's tree — readable on ANY branch that
+        // has no pushes yet (branches fork from the default branch).
+        assert_eq!(
+            p.read_file(&r, "main", "README.md").unwrap().as_deref(),
+            Some(b"# hi".as_slice())
+        );
+        assert_eq!(
+            p.read_file(&r, "dev", "README.md").unwrap().as_deref(),
+            Some(b"# hi".as_slice())
+        );
+        assert_eq!(p.read_file(&r, "main", "nope.txt").unwrap(), None);
+
+        // Push to dev: upserts README, adds a new file; main stays untouched.
+        p.push_files(
+            &r,
+            "dev",
+            &[
+                RenderedFile::text("README.md", "# updated"),
+                RenderedFile::text("services/ingest/main.py", "print()\n"),
+            ],
+            "feat: add service ingest (api:python)",
+        )
+        .unwrap();
+
+        assert_eq!(
+            p.read_file(&r, "dev", "README.md").unwrap().as_deref(),
+            Some(b"# updated".as_slice())
+        );
+        assert_eq!(
+            p.read_file(&r, "dev", "services/ingest/main.py")
+                .unwrap()
+                .as_deref(),
+            Some(b"print()\n".as_slice())
+        );
+        assert_eq!(
+            p.read_file(&r, "main", "README.md").unwrap().as_deref(),
+            Some(b"# hi".as_slice()),
+            "main untouched by the dev push"
+        );
+        assert_eq!(
+            p.read_file(&r, "main", "services/ingest/main.py").unwrap(),
+            None
+        );
+
+        // pushed() exposes (repo, branch, message) for assertions.
+        assert_eq!(
+            p.pushed(),
+            vec![(
+                "o/r".to_owned(),
+                "dev".to_owned(),
+                "feat: add service ingest (api:python)".to_owned()
+            )]
+        );
+    }
+
+    #[test]
+    fn fake_read_and_push_error_on_missing_repo() {
+        let p = FakeProvider::new();
+        let ghost = RepoCoordinates {
+            owner: "o".into(),
+            name: "ghost".into(),
+            html_url: String::new(),
+            default_branch: "main".into(),
+            branches: vec!["main".into()],
+        };
+        assert!(p.read_file(&ghost, "main", "x").is_err());
+        assert!(p
+            .push_files(&ghost, "dev", &[RenderedFile::text("x", "y")], "m")
+            .is_err());
     }
 }

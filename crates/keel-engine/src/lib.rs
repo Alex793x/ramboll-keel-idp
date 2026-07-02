@@ -18,6 +18,8 @@ use std::path::{Path, PathBuf};
 
 use keel_core::{InitOutcome, InitRequest, ProgressEvent, RepoProvider, Result};
 
+pub use workflow::add_service::{AddServiceOutcome, AddServiceSpec};
+
 /// The initialization engine. Holds the blueprint search path, the GitHub owner that new repos are
 /// created under, and the catalog location.
 #[derive(Debug, Clone)]
@@ -99,5 +101,32 @@ impl Engine {
     /// [`keel_core::KeelError::Io`] if the catalog cannot be read/parsed.
     pub fn list_projects(&self) -> Result<Vec<InitOutcome>> {
         catalog::read(&self.catalog_path)
+    }
+
+    /// Add ONE service component to an already-initialized project (SPEC §19.3).
+    ///
+    /// Resolves the component name (explicit name wins; unnamed gets the type-tag default) and
+    /// validates it against `spec.existing_names`; multi-repo creates a new
+    /// `{project}-{name}` repository, monolith pushes one commit to `dev` with the service tree
+    /// and the updated `keel.services.json`. Emits the `form, render, create_repo|commit,
+    /// register` progress events and updates the project's catalog row when one exists.
+    ///
+    /// # Errors
+    /// [`keel_core::KeelError::Validation`] on a name collision, invalid input, or a monolith
+    /// call without `base_repo`; render/provider failures propagate unchanged.
+    pub fn add_service(
+        &self,
+        spec: &AddServiceSpec<'_>,
+        provider: &dyn RepoProvider,
+        on_event: &mut dyn FnMut(&ProgressEvent),
+    ) -> Result<AddServiceOutcome> {
+        workflow::add_service::run(
+            spec,
+            &self.owner,
+            &self.blueprints_dir,
+            &self.catalog_path,
+            provider,
+            on_event,
+        )
     }
 }

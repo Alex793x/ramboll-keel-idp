@@ -21,9 +21,17 @@
  * {@link defaultLang}), monolith blueprint derivations ({@link serviceDir},
  * {@link monolithRepo}, {@link blueprintRepoLine}) and the real-provisioning
  * overlay rows ({@link provRowsFromEvents}, {@link initErrorMessage}).
+ *
+ * v5 additions (SPEC §19.1/§19.5) — named service components:
+ * {@link Service} gains an optional user-typed `name`; the naming helpers
+ * ({@link defaultServiceName}, {@link resolvedServiceName},
+ * {@link serviceNameError}) mirror keel-core's `resolve_service_names`
+ * contract exactly, {@link repoName}/{@link serviceDir} preview the resolved
+ * names, and {@link buildInitializePayload} sends `name` only when set —
+ * name-less payloads stay byte-identical to v4 (frozen regression baseline).
  */
 
-import { WORKFLOW_STEPS } from './types';
+import { SERVICE_NAME_RE, WORKFLOW_STEPS } from './types';
 import type {
   CatalogServiceType,
   Contributor,
@@ -58,6 +66,11 @@ export interface ServiceType {
 export interface Service {
   readonly type: ServiceTypeId;
   readonly lang: string;
+  /**
+   * v5 (SPEC §19.1): the user-typed custom service name, RAW (untrimmed).
+   * Absent/blank ⇒ the ordinal default {@link defaultServiceName} applies.
+   */
+  readonly name?: string;
 }
 
 /** One row of the provisioning overlay (design `PROV_STEPS`). */
@@ -160,9 +173,11 @@ export function slugOf(name: string): string {
 }
 
 /**
- * Repo name for the service at `index` — design line 1088, verbatim:
- * `slug + '-' + type`, and when more than one service shares that type, a
- * `-<ordinal>` suffix counting same-type services up to and including `index`.
+ * Repo name for the service at `index` — design line 1088 (`slug + '-' +
+ * type` with a `-<ordinal>` suffix when the type repeats), v5-extended: the
+ * suffixed segment is now {@link resolvedServiceName}, so a custom name
+ * previews as `{slug}-{name}` while unnamed services keep the v4 ordinal
+ * defaults byte-for-byte.
  */
 export function repoName(
   slug: string,
@@ -173,22 +188,33 @@ export function repoName(
   if (svc === undefined) {
     throw new Error(`repoName: index ${index} out of range (${services.length} services)`);
   }
-  const sameTypeTotal = services.filter((x) => x.type === svc.type).length;
-  const ordinal = services.slice(0, index + 1).filter((x) => x.type === svc.type).length;
-  return slug + '-' + svc.type + (sameTypeTotal > 1 ? '-' + String(ordinal) : '');
+  return slug + '-' + resolvedServiceName(services, index);
 }
 
-/** Whether the draft can be initialized — design line 1108. */
+/**
+ * Whether the draft can be initialized — design line 1108, v5-extended: every
+ * service name must also validate ({@link serviceNameError} ⇒ null for all).
+ */
 export function canInit(draft: WizardDraft): boolean {
-  return !!draft.name.trim() && !!draft.gba && draft.services.length > 0;
+  return (
+    !!draft.name.trim() &&
+    !!draft.gba &&
+    draft.services.length > 0 &&
+    !hasServiceNameError(draft.services)
+  );
 }
 
-/** The missing prerequisites, in design order — design lines 1109–1112. */
+/**
+ * The missing prerequisites, in design order — design lines 1109–1112, plus
+ * the v5 name-validity gate so {@link initHint} never renders "Needs ."
+ * when only a service name is invalid/duplicated.
+ */
 export function missingParts(draft: WizardDraft): string[] {
   const missing: string[] = [];
   if (!draft.name.trim()) missing.push('a name');
   if (!draft.gba) missing.push('a GBA');
   if (draft.services.length === 0) missing.push('at least one service');
+  if (hasServiceNameError(draft.services)) missing.push('valid service names');
   return missing;
 }
 
@@ -413,26 +439,31 @@ export function buildInitializePayload(state: WizardState): InitializePayload {
     description: state.description.trim(),
     author: state.author,
     layout: state.layout,
-    services: state.services.map((sv) => ({
-      type: sv.type,
-      lang: langSlug(state.catalog, sv.type, sv.lang),
-    })),
+    services: state.services.map((sv) => {
+      const custom = customServiceName(sv);
+      return {
+        type: sv.type,
+        lang: langSlug(state.catalog, sv.type, sv.lang),
+        // v5 (SPEC §19.5): send `name` ONLY when the user set one — never the
+        // ordinal default. Name-less payloads stay byte-identical to v4.
+        ...(custom !== null ? { name: custom } : {}),
+      };
+    }),
   };
 }
 
 /**
- * Monolith service directory for the service at `index`: the same ordinal
- * rule as {@link repoName}, without the slug prefix (keel-core
- * `service_dirs`: `{type}` when unique, `{type}-{n}` when the type repeats).
+ * Monolith service directory for the service at `index`: the same naming rule
+ * as {@link repoName} without the slug prefix — v5: {@link resolvedServiceName},
+ * i.e. the custom name when set, else keel-core `service_dirs` ordinals
+ * (`{type}` when unique, `{type}-{n}` when the type repeats).
  */
 export function serviceDir(services: readonly Service[], index: number): string {
   const svc = services[index];
   if (svc === undefined) {
     throw new Error(`serviceDir: index ${index} out of range (${services.length} services)`);
   }
-  const sameTypeTotal = services.filter((x) => x.type === svc.type).length;
-  const ordinal = services.slice(0, index + 1).filter((x) => x.type === svc.type).length;
-  return svc.type + (sameTypeTotal > 1 ? '-' + String(ordinal) : '');
+  return resolvedServiceName(services, index);
 }
 
 /** The single monolith repository shown in the blueprint header. */
@@ -518,4 +549,101 @@ export function createdRepoChips(
     return created.repos.map((r) => ({ label: `${r.owner}/${r.name}`, href: r.html_url }));
   }
   return createdRepos(created).map((label) => ({ label, href: null }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v5 — named service components (SPEC §19.1/§19.5). Pure naming logic that
+// mirrors keel-core `resolve_service_names` EXACTLY, so the wizard's
+// placeholders and Live Blueprint preview always equal the server's result.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Copy for an invalid custom service name (SPEC §19.1 slug rule). */
+export const SERVICE_NAME_FORMAT_ERROR =
+  'Use a-z, 0-9, hyphens (2–30 chars, start with a letter)';
+
+/** Copy for a duplicate resolved service name (case-sensitive exact). */
+export const SERVICE_NAME_DUPLICATE_ERROR = 'Name already used in this project';
+
+/** The trimmed custom name of a service, or null when unset/blank. */
+function customServiceName(sv: Service): string | null {
+  const trimmed = sv.name?.trim() ?? '';
+  return trimmed === '' ? null : trimmed;
+}
+
+/**
+ * The CURRENT ordinal default for the service at `index` — SPEC §19.1:
+ * `{type}` when unique, `{type}-{n}` when the type repeats, counted among
+ * entries of that type WITHOUT a custom name only. The entry at `index` is
+ * always counted as unnamed itself — its placeholder previews the default it
+ * would get if left (or cleared) unnamed — so for unnamed entries this equals
+ * keel-core's `resolve_service_names` output exactly (placeholder == server
+ * default).
+ */
+export function defaultServiceName(services: readonly Service[], index: number): string {
+  const svc = services[index];
+  if (svc === undefined) {
+    throw new Error(
+      `defaultServiceName: index ${index} out of range (${services.length} services)`,
+    );
+  }
+  let total = 0;
+  let ordinal = 0;
+  services.forEach((x, j) => {
+    if (x.type !== svc.type) return;
+    if (j !== index && customServiceName(x) !== null) return;
+    total += 1;
+    if (j <= index) ordinal += 1;
+  });
+  return svc.type + (total > 1 ? '-' + String(ordinal) : '');
+}
+
+/**
+ * The name the server will actually use for the service at `index`: the
+ * trimmed custom name when set, else {@link defaultServiceName}.
+ */
+export function resolvedServiceName(services: readonly Service[], index: number): string {
+  const svc = services[index];
+  if (svc === undefined) {
+    throw new Error(
+      `resolvedServiceName: index ${index} out of range (${services.length} services)`,
+    );
+  }
+  return customServiceName(svc) ?? defaultServiceName(services, index);
+}
+
+/**
+ * Validation for the service-name field at `index` (SPEC §19.5):
+ * - a custom name that fails `SERVICE_NAME_RE` ⇒ {@link SERVICE_NAME_FORMAT_ERROR};
+ * - a resolved name equal (case-sensitive exact) to any OTHER entry's
+ *   resolved name ⇒ {@link SERVICE_NAME_DUPLICATE_ERROR} — both sides of the
+ *   collision report it, mirroring keel-core's final-name-set check;
+ * - otherwise null. All-default drafts can never error (ordinals are
+ *   pairwise distinct by construction), so v4 behavior is unchanged.
+ */
+export function serviceNameError(
+  services: readonly Service[],
+  index: number,
+): string | null {
+  const svc = services[index];
+  if (svc === undefined) {
+    throw new Error(
+      `serviceNameError: index ${index} out of range (${services.length} services)`,
+    );
+  }
+  const custom = customServiceName(svc);
+  if (custom !== null && !SERVICE_NAME_RE.test(custom)) {
+    return SERVICE_NAME_FORMAT_ERROR;
+  }
+  const mine = resolvedServiceName(services, index);
+  for (let j = 0; j < services.length; j += 1) {
+    if (j !== index && resolvedServiceName(services, j) === mine) {
+      return SERVICE_NAME_DUPLICATE_ERROR;
+    }
+  }
+  return null;
+}
+
+/** Whether ANY service row currently has a name error (gates {@link canInit}). */
+function hasServiceNameError(services: readonly Service[]): boolean {
+  return services.some((_, i) => serviceNameError(services, i) !== null);
 }

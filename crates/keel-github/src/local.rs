@@ -8,7 +8,9 @@
 
 use std::path::PathBuf;
 
-use keel_core::{KeelError, ProtectionPolicy, RepoCoordinates, RepoProvider, RepoSpec, Result};
+use keel_core::{
+    KeelError, ProtectionPolicy, RenderedFile, RepoCoordinates, RepoProvider, RepoSpec, Result,
+};
 
 use crate::cmd;
 
@@ -99,6 +101,65 @@ impl RepoProvider for LocalDirProvider {
     fn write_protection(&self, _repo: &RepoCoordinates, _policy: &ProtectionPolicy) -> Result<()> {
         // Local disk has no branch-protection concept; the durable record is the
         // `branch-protection.json` committed by the engine. No-op (best-effort, like the gh provider).
+        Ok(())
+    }
+
+    fn read_file(
+        &self,
+        repo: &RepoCoordinates,
+        branch: &str,
+        path: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        let repo_path = self.repo_path(&repo.name);
+        if !repo_path.is_dir() {
+            return Err(KeelError::Github(format!(
+                "read_file: local repo {} not created",
+                repo_path.display()
+            )));
+        }
+        // `git show {branch}:{path}` reads the blob from the branch's committed tree without
+        // touching the working copy (checkout-free, binary-safe raw stdout).
+        let spec = format!("{branch}:{path}");
+        let out = cmd::capture("git", ["show", &spec], &repo_path)?;
+        if out.status.success() {
+            return Ok(Some(out.stdout));
+        }
+        let msg = cmd::describe(&out);
+        // A missing PATH on an existing branch is a genuine not-found; a missing BRANCH
+        // ("invalid object name") or any other failure is an error.
+        if msg.contains("does not exist") || msg.contains("exists on disk, but not in") {
+            Ok(None)
+        } else {
+            Err(KeelError::Github(format!(
+                "git show {spec} in {}: {msg}",
+                repo_path.display()
+            )))
+        }
+    }
+
+    fn push_files(
+        &self,
+        repo: &RepoCoordinates,
+        branch: &str,
+        files: &[RenderedFile],
+        message: &str,
+    ) -> Result<()> {
+        let repo_path = self.repo_path(&repo.name);
+        if !repo_path.is_dir() {
+            return Err(KeelError::Github(format!(
+                "push_files: local repo {} not created",
+                repo_path.display()
+            )));
+        }
+        // Switch to the target branch, write + commit, then restore the prior branch — even on
+        // failure, so a broken push never leaves the checkout on the wrong branch.
+        let prior = cmd::run("git", ["rev-parse", "--abbrev-ref", "HEAD"], &repo_path)?;
+        cmd::run("git", ["switch", branch], &repo_path)?;
+        let commit_result = cmd::write_files(&repo_path, files)
+            .and_then(|()| cmd::git_commit_all(&repo_path, message));
+        let restore_result = cmd::run("git", ["switch", &prior], &repo_path);
+        commit_result?;
+        restore_result?;
         Ok(())
     }
 }
@@ -206,5 +267,78 @@ mod tests {
         // Second call must not error even though `dev` already exists.
         p.ensure_branches(&coords, &["dev".into(), "staging".into()])
             .unwrap();
+    }
+
+    // ── v5: read_file / push_files round-trip ───────────────────────────────
+
+    #[test]
+    fn push_files_to_dev_round_trips_and_leaves_main_untouched() {
+        let td = TempDir::new().unwrap();
+        let p = LocalDirProvider::new(td.path().to_path_buf());
+        let coords = p.create_repo(&spec()).unwrap();
+        p.ensure_branches(&coords, &["main".into(), "dev".into()])
+            .unwrap();
+
+        let pushed = vec![
+            RenderedFile::text("services/ingest/README.md", "# ingest\n"),
+            RenderedFile::text("keel.services.json", "{\"version\":1}\n"),
+        ];
+        p.push_files(
+            &coords,
+            "dev",
+            &pushed,
+            "feat: add service ingest (api:python)",
+        )
+        .unwrap();
+
+        // read_file sees the pushed bytes on dev…
+        let readme = p
+            .read_file(&coords, "dev", "services/ingest/README.md")
+            .unwrap()
+            .expect("pushed file readable on dev");
+        assert_eq!(readme, b"# ingest\n");
+        // …and the pre-existing file is still there on dev.
+        let existing = p.read_file(&coords, "dev", "README.md").unwrap();
+        assert_eq!(existing.as_deref(), Some(b"# demo\n".as_slice()));
+        // main is untouched (the new path does not exist there).
+        assert_eq!(
+            p.read_file(&coords, "main", "services/ingest/README.md")
+                .unwrap(),
+            None
+        );
+
+        // Exactly one NEW commit on dev; main still has exactly one.
+        let repo = td.path().join("keel-local-demo");
+        let count = |branch: &str| -> usize {
+            cmd::run("git", ["rev-list", "--count", branch], &repo)
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap()
+        };
+        assert_eq!(count("dev"), 2, "dev = scaffold + push");
+        assert_eq!(count("main"), 1, "main untouched");
+        let subject = cmd::run("git", ["log", "-1", "--format=%s", "dev"], &repo).unwrap();
+        assert_eq!(subject, "feat: add service ingest (api:python)");
+
+        // The checkout is restored to the branch it was on before the push (main).
+        let head = cmd::run("git", ["rev-parse", "--abbrev-ref", "HEAD"], &repo).unwrap();
+        assert_eq!(head, "main");
+    }
+
+    #[test]
+    fn read_file_missing_path_is_none_missing_branch_is_error() {
+        let td = TempDir::new().unwrap();
+        let p = LocalDirProvider::new(td.path().to_path_buf());
+        let coords = p.create_repo(&spec()).unwrap();
+
+        assert_eq!(
+            p.read_file(&coords, "main", "no/such/file.txt").unwrap(),
+            None
+        );
+        let err = p
+            .read_file(&coords, "no-such-branch", "README.md")
+            .expect_err("missing branch is an error, not None");
+        assert!(matches!(err, KeelError::Github(_)), "got {err:?}");
     }
 }

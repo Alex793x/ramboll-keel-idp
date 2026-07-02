@@ -10,6 +10,12 @@
  * the single `ramboll/{slug}` repo line and each service node's repo line
  * becomes its in-repo `services/{dir}` path; multi-repo is pixel-identical
  * to the original design.
+ *
+ * v5 (SPEC §19.5): the repo lines resolve custom service names live —
+ * `blueprintRepoLine` previews `{slug}-{name}` / `services/{name}` while the
+ * user types in the wizard's inline name fields; unnamed services keep the
+ * v4 ordinal defaults. Node keys are index-stable so renaming never replays
+ * the popIn entrance animation mid-keystroke.
  */
 import { ICONS, PathIcon } from '../../design/icons';
 import { color, font } from '../../design/tokens';
@@ -166,7 +172,7 @@ export function LiveBlueprint({ name, gba, contributors, services, layout }: Liv
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {nodes.map((b, i) => (
             <div
-              key={`${b.repo}-${i}`}
+              key={`${b.tag}-${i}`}
               style={{
                 display: 'flex',
                 alignItems: 'center',

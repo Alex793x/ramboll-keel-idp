@@ -372,6 +372,118 @@ describe('WizardScreen', () => {
     });
   });
 
+  describe('service naming (SPEC §19.5)', () => {
+    it('shows the ordinal default as the placeholder, renumbering among unnamed', async () => {
+      setup();
+      await flush();
+      fireEvent.click(screen.getByText('Backend API'));
+      expect(screen.getByPlaceholderText('api')).toBeInTheDocument();
+
+      // A second api service: both placeholders pick up ordinals.
+      fireEvent.click(screen.getAllByText('Backend API')[0]!);
+      expect(screen.getByPlaceholderText('api-1')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('api-2')).toBeInTheDocument();
+
+      // Naming the first api shrinks the unnamed pool — the remaining
+      // unnamed api is unique again (SPEC §19.1: counted among unnamed only).
+      fireEvent.change(screen.getByPlaceholderText('api-1'), {
+        target: { value: 'ingest' },
+      });
+      expect(screen.getByPlaceholderText('api')).toBeInTheDocument();
+    });
+
+    it('typing a name live-updates the repo hint, the blueprint node and the payload', async () => {
+      const { fetchImpl } = setup();
+      await flush();
+      fillValidDraft();
+      fireEvent.change(screen.getByPlaceholderText('api'), {
+        target: { value: 'ingest' },
+      });
+      // Row repo line + blueprint node both resolve the custom name…
+      expect(screen.getAllByText('district-heating-optimizer-ingest')).toHaveLength(2);
+      // …and the mono hint under the field carries the org prefix.
+      expect(
+        screen.getByText('ramboll/district-heating-optimizer-ingest'),
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Initialize project' }));
+      await flush();
+      const payload = sentPayload(fetchImpl) as { services: unknown[] };
+      expect(payload.services).toEqual([{ type: 'api', lang: 'dotnet', name: 'ingest' }]);
+    });
+
+    it('sends no name key when the field is left empty or cleared', async () => {
+      const { fetchImpl } = setup();
+      await flush();
+      fillValidDraft();
+      const input = screen.getByPlaceholderText('api');
+      fireEvent.change(input, { target: { value: 'ingest' } });
+      fireEvent.change(input, { target: { value: '' } });
+      // Cleared ⇒ the ordinal default returns everywhere (v4 pixels).
+      expect(screen.getAllByText('district-heating-optimizer-api')).toHaveLength(2);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Initialize project' }));
+      await flush();
+      const payload = sentPayload(fetchImpl) as { services: Record<string, unknown>[] };
+      expect(Object.keys(payload.services[0]!)).toEqual(['type', 'lang']);
+    });
+
+    it('shows the format error and disables Initialize for an invalid name', async () => {
+      const { fetchImpl } = setup();
+      await flush();
+      fillValidDraft();
+      const button = screen.getByRole('button', { name: 'Initialize project' });
+      expect(button).toBeEnabled();
+
+      fireEvent.change(screen.getByPlaceholderText('api'), {
+        target: { value: 'Ingest' },
+      });
+      expect(
+        screen.getByText('Use a-z, 0-9, hyphens (2–30 chars, start with a letter)'),
+      ).toBeInTheDocument();
+      expect(button).toBeDisabled();
+      expect(screen.getByText('Needs valid service names.')).toBeInTheDocument();
+      fireEvent.click(button);
+      expect(
+        fetchImpl.mock.calls.some(([u]) => String(u).endsWith('/api/initialize')),
+      ).toBe(false);
+
+      // Fixing the name clears the error and re-enables the run.
+      fireEvent.change(screen.getByPlaceholderText('api'), {
+        target: { value: 'ingest' },
+      });
+      expect(
+        screen.queryByText('Use a-z, 0-9, hyphens (2–30 chars, start with a letter)'),
+      ).not.toBeInTheDocument();
+      expect(button).toBeEnabled();
+    });
+
+    it('blocks submit while two services share a custom name, until fixed', async () => {
+      setup();
+      await flush();
+      fillValidDraft();
+      fireEvent.click(screen.getAllByText('Backend API')[0]!); // second api service
+      fireEvent.change(screen.getByPlaceholderText('api-1'), {
+        target: { value: 'ingest' },
+      });
+      fireEvent.change(screen.getByPlaceholderText('api'), {
+        target: { value: 'ingest' },
+      });
+      // The collision flags BOTH rows and gates Initialize.
+      expect(screen.getAllByText('Name already used in this project')).toHaveLength(2);
+      const button = screen.getByRole('button', { name: 'Initialize project' });
+      expect(button).toBeDisabled();
+
+      // Renaming one side resolves the collision.
+      const inputs = screen.getAllByLabelText('Service name');
+      fireEvent.change(inputs[1]!, { target: { value: 'egress' } });
+      expect(
+        screen.queryByText('Name already used in this project'),
+      ).not.toBeInTheDocument();
+      expect(button).toBeEnabled();
+    });
+  });
+
   describe('real provisioning (POST /api/initialize)', () => {
     beforeEach(() => {
       vi.useFakeTimers();

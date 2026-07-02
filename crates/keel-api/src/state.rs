@@ -1,10 +1,12 @@
 //! Shared application state + configuration defaults.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use keel_core::MockCatalog;
 use keel_engine::Engine;
+
+use crate::additions::{AdditionsStore, ADDITIONS_FILE};
 
 /// Default GitHub owner new repos are created under (overridable via `KEEL_OWNER`).
 pub const DEFAULT_OWNER: &str = "Alex793x";
@@ -25,6 +27,8 @@ pub struct AppState {
     pub engine: Arc<Engine>,
     pub blueprints_dir: PathBuf,
     pub owner: String,
+    /// The v5 add-service overlay store (`keel.additions.json`, sibling of the engine catalog).
+    pub additions: AdditionsStore,
 }
 
 impl AppState {
@@ -41,11 +45,19 @@ impl AppState {
     #[must_use]
     pub fn new(blueprints_dir: PathBuf, owner: String) -> Self {
         let engine = Engine::new(blueprints_dir.clone(), owner.clone());
+        // The overlay lives beside the engine's catalog (`<blueprints>/../.keel/`), so both the
+        // audit trail and the v5 additions share one gitignored state dir.
+        let additions_path = engine
+            .catalog_path()
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join(ADDITIONS_FILE);
         Self {
             data: Arc::new(MockCatalog::embedded()),
             engine: Arc::new(engine),
             blueprints_dir,
             owner,
+            additions: AdditionsStore::new(additions_path),
         }
     }
 }

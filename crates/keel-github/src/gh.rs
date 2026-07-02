@@ -1,7 +1,9 @@
 //! [`GhCliProvider`] — the real [`RepoProvider`], implemented over the user's authenticated `gh`
 //! CLI plus `git`, via `std::process::Command`. No network library, no async.
 
-use keel_core::{KeelError, ProtectionPolicy, RepoCoordinates, RepoProvider, RepoSpec, Result};
+use keel_core::{
+    KeelError, ProtectionPolicy, RenderedFile, RepoCoordinates, RepoProvider, RepoSpec, Result,
+};
 
 use crate::cmd;
 
@@ -44,6 +46,75 @@ pub fn build_repo_create_argv(spec: &RepoSpec) -> Vec<String> {
         "--description".to_owned(),
         spec.description.clone(),
     ]
+}
+
+/// Build the `gh api` endpoint for the contents API: `repos/{owner}/{name}/contents/{path}?ref={branch}`.
+///
+/// Extracted as a pure function so the exact endpoint is unit-testable without invoking `gh`.
+/// Paths are Keel-rendered slugs (`[a-z0-9-_./]`), so no percent-encoding is required.
+#[must_use]
+pub fn build_contents_endpoint(owner: &str, name: &str, path: &str, branch: &str) -> String {
+    format!("repos/{owner}/{name}/contents/{path}?ref={branch}")
+}
+
+/// Build the exact argv for the shallow single-branch clone used by `push_files`
+/// (`gh repo clone {owner}/{name} {dir} -- --depth 1 --branch {branch}`). Pure, for unit tests.
+#[must_use]
+pub fn build_push_clone_argv(owner: &str, name: &str, dir: &str, branch: &str) -> Vec<String> {
+    vec![
+        "repo".to_owned(),
+        "clone".to_owned(),
+        format!("{owner}/{name}"),
+        dir.to_owned(),
+        "--".to_owned(),
+        "--depth".to_owned(),
+        "1".to_owned(),
+        "--branch".to_owned(),
+        branch.to_owned(),
+    ]
+}
+
+/// Decode the base64 payload of the GitHub contents API, tolerating the embedded newlines the
+/// API inserts every 60 characters. `None` on any non-base64 byte.
+#[must_use]
+pub(crate) fn decode_base64_content(s: &str) -> Option<Vec<u8>> {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut lut = [255u8; 256];
+    for (i, &c) in TABLE.iter().enumerate() {
+        lut[c as usize] = u8::try_from(i).unwrap_or(255);
+    }
+    let mut out = Vec::with_capacity(s.len() / 4 * 3);
+    let mut buf = 0u32;
+    let mut bits = 0u32;
+    for c in s.bytes() {
+        if c.is_ascii_whitespace() {
+            continue;
+        }
+        if c == b'=' {
+            break;
+        }
+        let v = lut[c as usize];
+        if v == 255 {
+            return None;
+        }
+        buf = (buf << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buf >> bits) as u8);
+        }
+    }
+    Some(out)
+}
+
+/// True when a failed `gh` invocation's output reads as a plain "not found" (vs auth/network/
+/// rate-limit failures, which must surface as errors). Same classification idiom as
+/// [`GhCliProvider::repo_exists`].
+fn is_not_found(msg: &str) -> bool {
+    let msg = msg.to_lowercase();
+    msg.contains("could not resolve to a repository")
+        || msg.contains("not found")
+        || msg.contains("404")
 }
 
 impl GhCliProvider {
@@ -90,11 +161,7 @@ impl RepoProvider for GhCliProvider {
         // Only a genuine "not found" means the repo is absent. Auth/network/rate-limit failures
         // must NOT be silently classified as "absent" (that would make the workflow try to create an
         // existing repo); surface them so the caller aborts with an actionable error.
-        let msg = cmd::describe(&out).to_lowercase();
-        let not_found = msg.contains("could not resolve to a repository")
-            || msg.contains("not found")
-            || msg.contains("404");
-        if not_found {
+        if is_not_found(&cmd::describe(&out)) {
             Ok(false)
         } else {
             Err(KeelError::Github(format!(
@@ -267,6 +334,54 @@ impl RepoProvider for GhCliProvider {
             }
         }
     }
+
+    fn read_file(
+        &self,
+        repo: &RepoCoordinates,
+        branch: &str,
+        path: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        let cwd = std::env::current_dir().map_err(|e| KeelError::Io(e.to_string()))?;
+        let endpoint = build_contents_endpoint(&repo.owner, &repo.name, path, branch);
+        let out = cmd::capture("gh", ["api", &endpoint, "--jq", ".content"], &cwd)?;
+        if !out.status.success() {
+            let msg = cmd::describe(&out);
+            // Same not-found classification as repo_exists: only a genuine 404 is Ok(None).
+            return if is_not_found(&msg) {
+                Ok(None)
+            } else {
+                Err(KeelError::Github(format!(
+                    "`gh api {endpoint}` failed (not a not-found error): {msg}"
+                )))
+            };
+        }
+        let b64 = String::from_utf8_lossy(&out.stdout);
+        decode_base64_content(b64.trim()).map(Some).ok_or_else(|| {
+            KeelError::Github(format!(
+                "contents API returned invalid base64 for {}/{}:{path}@{branch}",
+                repo.owner, repo.name
+            ))
+        })
+    }
+
+    fn push_files(
+        &self,
+        repo: &RepoCoordinates,
+        branch: &str,
+        files: &[RenderedFile],
+        message: &str,
+    ) -> Result<()> {
+        // Shallow single-branch clone into a temp dir, write, one commit, push.
+        let staging = tempfile::TempDir::new().map_err(|e| KeelError::Io(e.to_string()))?;
+        let root = staging.path();
+        let argv = build_push_clone_argv(&repo.owner, &repo.name, "repo", branch);
+        cmd::run("gh", &argv, root)?;
+        let work = root.join("repo");
+        cmd::write_files(&work, files)?;
+        cmd::git_commit_all(&work, message)?;
+        cmd::run("git", ["push", "origin", branch], &work)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -322,5 +437,91 @@ mod tests {
         // Description is a single argv element (not split on spaces).
         let idx = argv.iter().position(|a| a == "--description").unwrap();
         assert_eq!(argv[idx + 1], "Owner: @Alex793x — buildings");
+    }
+
+    // ── v5 pure parts: contents endpoint, clone argv, base64, not-found ─────
+
+    #[test]
+    fn contents_endpoint_is_exact() {
+        assert_eq!(
+            build_contents_endpoint("Alex793x", "demo", "keel.services.json", "dev"),
+            "repos/Alex793x/demo/contents/keel.services.json?ref=dev"
+        );
+        assert_eq!(
+            build_contents_endpoint("o", "r", "services/ingest/README.md", "main"),
+            "repos/o/r/contents/services/ingest/README.md?ref=main"
+        );
+    }
+
+    #[test]
+    fn push_clone_argv_is_exact() {
+        assert_eq!(
+            build_push_clone_argv("Alex793x", "demo", "repo", "dev"),
+            vec![
+                "repo",
+                "clone",
+                "Alex793x/demo",
+                "repo",
+                "--",
+                "--depth",
+                "1",
+                "--branch",
+                "dev",
+            ]
+        );
+    }
+
+    #[test]
+    fn base64_content_decodes_with_api_newlines() {
+        // "hello keel" → aGVsbG8ga2VlbA== ; the contents API wraps lines with \n.
+        assert_eq!(
+            decode_base64_content("aGVsbG8g\na2VlbA==\n").as_deref(),
+            Some(b"hello keel".as_slice())
+        );
+        assert_eq!(decode_base64_content("").as_deref(), Some(b"".as_slice()));
+        assert!(decode_base64_content("not*base64!").is_none());
+    }
+
+    #[test]
+    fn base64_content_round_trips_rendered_bytes() {
+        // Encode with the same alphabet, decode with ours (binary-safe check).
+        const TABLE: &[u8; 64] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let bytes: Vec<u8> = (0u8..=255).collect();
+        let mut enc = String::new();
+        for chunk in bytes.chunks(3) {
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
+            let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+            enc.push(TABLE[((n >> 18) & 63) as usize] as char);
+            enc.push(TABLE[((n >> 12) & 63) as usize] as char);
+            enc.push(if chunk.len() > 1 {
+                TABLE[((n >> 6) & 63) as usize] as char
+            } else {
+                '='
+            });
+            enc.push(if chunk.len() > 2 {
+                TABLE[(n & 63) as usize] as char
+            } else {
+                '='
+            });
+        }
+        assert_eq!(
+            decode_base64_content(&enc).as_deref(),
+            Some(bytes.as_slice())
+        );
+    }
+
+    #[test]
+    fn not_found_classification_matches_repo_exists_idiom() {
+        assert!(is_not_found(
+            "HTTP 404: Not Found (https://api.github.com/...)"
+        ));
+        assert!(is_not_found("GraphQL: Could not resolve to a Repository"));
+        assert!(!is_not_found("HTTP 401: Bad credentials"));
+        assert!(!is_not_found("error connecting to api.github.com"));
     }
 }

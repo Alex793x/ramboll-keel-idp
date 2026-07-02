@@ -44,18 +44,34 @@ export function ProjectScreen({ id, api }: { id: string; api?: KeelApi }) {
       {error && !loading && (
         <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
       )}
-      {data && !loading && !error && <Dashboard overview={data} />}
+      {data && !loading && !error && (
+        <Dashboard
+          overview={data}
+          api={client}
+          // Add-service success re-runs the overview useAsync (retry idiom),
+          // so the new chip / Day-one repo render from fresh data.
+          onServiceAdded={() => setAttempt((n) => n + 1)}
+        />
+      )}
     </div>
   );
 }
 
-function Dashboard({ overview }: { overview: ProjectOverview }) {
+function Dashboard({
+  overview,
+  api,
+  onServiceAdded,
+}: {
+  overview: ProjectOverview;
+  api: KeelApi;
+  onServiceAdded: () => void;
+}) {
   // One "now" per payload: relative labels stay consistent across panels.
   // (The Pipelines panel ticks its own second-resolution clock for elapsed.)
   const nowS = Math.floor(Date.now() / 1000);
   return (
     <>
-      <ProjectHeader project={overview.project} />
+      <ProjectHeader project={overview.project} api={api} onServiceAdded={onServiceAdded} />
       <div style={{ marginBottom: 22 }}>
         <GlassPanel label="THE FLOW" live index={0}>
           <FlowPanel branches={overview.branches} />

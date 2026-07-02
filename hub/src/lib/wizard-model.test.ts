@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { WORKFLOW_STEPS } from './types';
+import { SERVICE_NAME_RE, WORKFLOW_STEPS } from './types';
 import type {
   CatalogServiceType,
   Contributor,
@@ -19,6 +19,8 @@ import {
   PROV_META,
   PROV_STEPS,
   PROV_TICK_MS,
+  SERVICE_NAME_DUPLICATE_ERROR,
+  SERVICE_NAME_FORMAT_ERROR,
   TYPES,
   blueprintName,
   blueprintRepoLine,
@@ -30,6 +32,7 @@ import {
   createdRepos,
   createdSummary,
   defaultLang,
+  defaultServiceName,
   designCatalog,
   initErrorMessage,
   initHint,
@@ -42,7 +45,9 @@ import {
   provRowState,
   provRowsFromEvents,
   repoName,
+  resolvedServiceName,
   serviceDir,
+  serviceNameError,
   slugOf,
   typeOf,
   type CreatedProject,
@@ -54,6 +59,10 @@ import {
 } from './wizard-model';
 
 const svc = (type: ServiceTypeId, lang = 'x'): Service => ({ type, lang });
+
+/** v5 helper: a service with (or without) a user-typed custom name. */
+const namedSvc = (type: ServiceTypeId, name?: string, lang = 'x'): Service =>
+  name === undefined ? { type, lang } : { type, lang, name };
 
 describe('design data (verbatim from the source of truth)', () => {
   it('GBAS matches design line 612', () => {
@@ -623,6 +632,133 @@ describe('buildInitializePayload', () => {
       }
     }
   });
+
+  // ── v5 — named services (SPEC §19.1/§19.5) ─────────────────────────────────
+  describe('v5 named services', () => {
+    it('includes the trimmed name ONLY when the user set one', () => {
+      const state = baseState({
+        services: [
+          { type: 'api', lang: 'Python', name: '  ingest ' },
+          { type: 'api', lang: 'Python' },
+          { type: 'wk', lang: 'Go', name: '   ' },
+        ],
+      });
+      const payload = buildInitializePayload(state);
+      expect(payload.services).toEqual([
+        { type: 'api', lang: 'python', name: 'ingest' },
+        { type: 'api', lang: 'python' },
+        { type: 'wk', lang: 'go' },
+      ]);
+      // toEqual ignores absent-vs-undefined; pin the exact key sets.
+      expect(Object.keys(payload.services[0]!)).toEqual(['type', 'lang', 'name']);
+      expect(Object.keys(payload.services[1]!)).toEqual(['type', 'lang']);
+      expect(Object.keys(payload.services[2]!)).toEqual(['type', 'lang']);
+    });
+
+    it('regression pin: the no-names payload is BYTE-identical to the pre-v5 shape', () => {
+      const payload = buildInitializePayload(baseState({ layout: 'monolith' }));
+      // Literal pre-v5 expected object — field order matches the builder.
+      const preV5 = {
+        project_name: 'District Heating Optimizer',
+        blueprint: 'api-python',
+        department_id: 'energy',
+        user_ids: ['u-joe'],
+        service_kind: 'rest-api',
+        description: 'Optimizes district heating grids',
+        author: 'Alex Holmberg',
+        layout: 'monolith',
+        services: [{ type: 'api', lang: 'python' }],
+      };
+      expect(JSON.stringify(payload)).toBe(JSON.stringify(preV5));
+    });
+
+    // A guaranteed-valid SPEC §19.1 slug: leading letter + 1–29 tail chars.
+    const validNameArb = fc
+      .tuple(
+        fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'),
+        fc.array(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789-'), {
+          minLength: 1,
+          maxLength: 29,
+        }),
+      )
+      .map(([head, tail]) => head + tail.join(''));
+
+    /** Services whose `name` is absent, a valid slug, or a hostile string. */
+    const namedServiceArb: fc.Arbitrary<Service> = fc.record(
+      {
+        type: typeArb,
+        lang: langNameArb,
+        name: fc.oneof(validNameArb, fc.string({ maxLength: 8 })),
+      },
+      { requiredKeys: ['type', 'lang'] },
+    );
+
+    const namedStateArb = stateArb(fc.array(namedServiceArb, { maxLength: 6 })).filter(
+      (s) => s.name.trim() !== '' && s.gba !== null,
+    );
+
+    it('property: under canInit every sent name is valid and resolved names are pairwise distinct', () => {
+      fc.assert(
+        fc.property(namedStateArb, (state) => {
+          if (!canInit(state)) return;
+          const payload = buildInitializePayload(state);
+          for (const sv of payload.services) {
+            if (sv.name !== undefined) {
+              expect(sv.name).toMatch(SERVICE_NAME_RE);
+            }
+          }
+          const resolved = state.services.map((_, i) =>
+            resolvedServiceName(state.services, i),
+          );
+          expect(new Set(resolved).size).toBe(resolved.length);
+        }),
+      );
+    });
+
+    it('property: name appears in the payload iff the user set a non-blank one, trimmed', () => {
+      fc.assert(
+        fc.property(namedStateArb, (state) => {
+          const payload = buildInitializePayload(state);
+          state.services.forEach((sv, i) => {
+            const trimmed = sv.name?.trim() ?? '';
+            const sent = payload.services[i]!;
+            if (trimmed === '') {
+              expect('name' in sent).toBe(false);
+            } else {
+              expect(sent.name).toBe(trimmed);
+            }
+          });
+        }),
+      );
+    });
+
+    it('property: no-name states serialize byte-identically to the pre-v5 builder (oracle)', () => {
+      fc.assert(
+        fc.property(anyStateArb, (state) => {
+          const payload = buildInitializePayload(state);
+          // Oracle: the v4 builder, inlined verbatim from the pre-v5 revision.
+          const dept = state.departments.find((d) => d.name === state.gba);
+          const v4 = {
+            project_name: state.name.trim(),
+            blueprint: 'api-python',
+            department_id: dept?.id ?? (state.gba !== null ? slugOf(state.gba) : ''),
+            user_ids: state.contributors
+              .map((n) => state.users.find((u) => u.name === n)?.id)
+              .filter((id): id is string => id !== undefined),
+            service_kind: 'rest-api',
+            description: state.description.trim(),
+            author: state.author,
+            layout: state.layout,
+            services: state.services.map((sv) => ({
+              type: sv.type,
+              lang: langSlug(state.catalog, sv.type, sv.lang),
+            })),
+          };
+          expect(JSON.stringify(payload)).toBe(JSON.stringify(v4));
+        }),
+      );
+    });
+  });
 });
 
 describe('serviceDir / monolithRepo / blueprintRepoLine', () => {
@@ -751,5 +887,186 @@ describe('createdRepoChips', () => {
     expect(createdRepoChips({ ...base, repos: [] })).toEqual([
       { label: 'ramboll/district-heating-optimizer-api', href: null },
     ]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v5 — named service components (SPEC §19.1/§19.5)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('defaultServiceName / resolvedServiceName (SPEC §19.1)', () => {
+  it('gives a unique type its bare type id', () => {
+    const services = [namedSvc('fe'), namedSvc('api')];
+    expect(defaultServiceName(services, 0)).toBe('fe');
+    expect(defaultServiceName(services, 1)).toBe('api');
+  });
+
+  it('numbers repeated unnamed types by ordinal', () => {
+    const services = [namedSvc('api'), namedSvc('api')];
+    expect(defaultServiceName(services, 0)).toBe('api-1');
+    expect(defaultServiceName(services, 1)).toBe('api-2');
+  });
+
+  it('counts ordinals among UNNAMED services of the type only', () => {
+    // Naming the first api removes it from the unnamed pool — the remaining
+    // unnamed api is unique again and drops its suffix, exactly like
+    // keel-core resolve_service_names (placeholder == server default).
+    const services = [namedSvc('api', 'ingest'), namedSvc('api')];
+    expect(defaultServiceName(services, 1)).toBe('api');
+    // The named entry's own placeholder previews the default it would get if
+    // cleared: back in a pool of two → api-1.
+    expect(defaultServiceName(services, 0)).toBe('api-1');
+  });
+
+  it('resolvedServiceName prefers the trimmed custom name', () => {
+    const services = [namedSvc('api', '  ingest  '), namedSvc('api')];
+    expect(resolvedServiceName(services, 0)).toBe('ingest');
+    expect(resolvedServiceName(services, 1)).toBe('api');
+  });
+
+  it('treats blank names as unset', () => {
+    const services = [namedSvc('api', '   '), namedSvc('api', '')];
+    expect(resolvedServiceName(services, 0)).toBe('api-1');
+    expect(resolvedServiceName(services, 1)).toBe('api-2');
+  });
+
+  it('throws on an out-of-range index', () => {
+    expect(() => defaultServiceName([namedSvc('fe')], 5)).toThrow(/out of range/);
+    expect(() => resolvedServiceName([namedSvc('fe')], 5)).toThrow(/out of range/);
+    expect(() => serviceNameError([namedSvc('fe')], 5)).toThrow(/out of range/);
+  });
+
+  it('property: parity with the v4 ordinal algorithm when nothing is named', () => {
+    const idArb = fc.constantFrom<ServiceTypeId>('fe', 'api', 'wk', 'dp', 'inf');
+    fc.assert(
+      fc.property(fc.array(idArb, { minLength: 1, maxLength: 12 }), (ids) => {
+        const services = ids.map((t) => namedSvc(t));
+        ids.forEach((t, i) => {
+          // Oracle: the pre-v5 ordinal rule, counted among ALL of the type.
+          const total = ids.filter((x) => x === t).length;
+          const ordinal = ids.slice(0, i + 1).filter((x) => x === t).length;
+          const v4 = total > 1 ? `${t}-${ordinal}` : t;
+          expect(defaultServiceName(services, i)).toBe(v4);
+          expect(resolvedServiceName(services, i)).toBe(v4);
+          expect(serviceDir(services, i)).toBe(v4);
+          expect(repoName('p', services, i)).toBe(`p-${v4}`);
+          expect(serviceNameError(services, i)).toBeNull();
+        });
+      }),
+    );
+  });
+});
+
+describe('serviceNameError (SPEC §19.5)', () => {
+  it('accepts valid SPEC §19.1 slugs', () => {
+    for (const name of ['ingest', 'a1', 'heat-optimizer-ingest', 'api-2']) {
+      expect(serviceNameError([namedSvc('api', name)], 0)).toBeNull();
+    }
+  });
+
+  it('rejects malformed names with the exact format copy', () => {
+    expect(SERVICE_NAME_FORMAT_ERROR).toBe(
+      'Use a-z, 0-9, hyphens (2–30 chars, start with a letter)',
+    );
+    for (const name of [
+      'Ingest',
+      'x',
+      '1abc',
+      'has space',
+      '-lead',
+      'a'.repeat(31),
+      'æøå',
+    ]) {
+      expect(serviceNameError([namedSvc('api', name)], 0)).toBe(
+        SERVICE_NAME_FORMAT_ERROR,
+      );
+    }
+  });
+
+  it('reports duplicates on BOTH rows with the exact copy', () => {
+    expect(SERVICE_NAME_DUPLICATE_ERROR).toBe('Name already used in this project');
+    const services = [namedSvc('api', 'ingest'), namedSvc('wk', 'ingest')];
+    expect(serviceNameError(services, 0)).toBe(SERVICE_NAME_DUPLICATE_ERROR);
+    expect(serviceNameError(services, 1)).toBe(SERVICE_NAME_DUPLICATE_ERROR);
+  });
+
+  it("flags a custom name colliding with another row's DEFAULT", () => {
+    // The unnamed api resolves to 'api'; naming the fe 'api' collides.
+    const services = [namedSvc('api'), namedSvc('fe', 'api')];
+    expect(serviceNameError(services, 0)).toBe(SERVICE_NAME_DUPLICATE_ERROR);
+    expect(serviceNameError(services, 1)).toBe(SERVICE_NAME_DUPLICATE_ERROR);
+  });
+
+  it('duplicate check is case-sensitive exact (uppercase fails format first)', () => {
+    // 'Ingest' differs case-sensitively from 'ingest' — no duplicate — and
+    // the uppercase name reports the slug-rule violation instead.
+    const services = [namedSvc('api', 'ingest'), namedSvc('wk', 'Ingest')];
+    expect(serviceNameError(services, 0)).toBeNull();
+    expect(serviceNameError(services, 1)).toBe(SERVICE_NAME_FORMAT_ERROR);
+  });
+
+  it('distinct custom names and defaults coexist error-free', () => {
+    const services = [
+      namedSvc('api', 'ingest'),
+      namedSvc('api'),
+      namedSvc('api', 'egress'),
+    ];
+    expect(services.map((_, i) => serviceNameError(services, i))).toEqual([
+      null,
+      null,
+      null,
+    ]);
+    // The lone unnamed api keeps the bare default.
+    expect(resolvedServiceName(services, 1)).toBe('api');
+  });
+});
+
+describe('canInit / missingParts / initHint with names (v5 gate)', () => {
+  const draft = (services: readonly Service[]): WizardDraft => ({
+    name: 'X',
+    gba: 'Energy',
+    services,
+  });
+
+  it('rename → collision → fix flow flips canInit false and back', () => {
+    const ok = draft([namedSvc('api', 'ingest'), namedSvc('api')]);
+    expect(canInit(ok)).toBe(true);
+
+    const collided = draft([namedSvc('api', 'ingest'), namedSvc('api', 'ingest')]);
+    expect(canInit(collided)).toBe(false);
+    expect(missingParts(collided)).toEqual(['valid service names']);
+    expect(initHint(collided)).toBe('Needs valid service names.');
+
+    const fixed = draft([namedSvc('api', 'ingest'), namedSvc('api', 'egress')]);
+    expect(canInit(fixed)).toBe(true);
+    expect(initHint(fixed)).toBe('~40 seconds. Everything is reversible.');
+  });
+
+  it('an invalid name alone blocks initialization', () => {
+    const bad = draft([namedSvc('api', 'Nope')]);
+    expect(canInit(bad)).toBe(false);
+    expect(missingParts(bad)).toEqual(['valid service names']);
+    expect(initHint(bad)).toBe('Needs valid service names.');
+  });
+
+  it('name errors stack after the design parts in the hint', () => {
+    const d: WizardDraft = { name: '', gba: null, services: [namedSvc('api', 'x')] };
+    expect(missingParts(d)).toEqual(['a name', 'a GBA', 'valid service names']);
+  });
+});
+
+describe('repoName / serviceDir / blueprintRepoLine with custom names (v5 preview)', () => {
+  const services: Service[] = [
+    { type: 'api', lang: 'Python', name: 'ingest' },
+    { type: 'api', lang: 'Python' },
+  ];
+
+  it('previews {slug}-{name} and services/{name} for named services', () => {
+    expect(repoName('heat', services, 0)).toBe('heat-ingest');
+    expect(serviceDir(services, 0)).toBe('ingest');
+    expect(blueprintRepoLine('monolith', 'heat', services, 0)).toBe('services/ingest');
+    // The unnamed api is unique among unnamed → bare default, no suffix.
+    expect(repoName('heat', services, 1)).toBe('heat-api');
+    expect(blueprintRepoLine('multi-repo', 'heat', services, 1)).toBe('heat-api');
   });
 });

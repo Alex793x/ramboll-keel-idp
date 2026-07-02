@@ -9,6 +9,7 @@ import { color, font } from "../../design/tokens";
 import { statusChipStyle } from "../../lib/hub-data";
 import { formatDateLong } from "../../lib/time";
 import type { OverviewProject } from "../../lib/types";
+import { AddServicePopover, type AddServiceApi } from "./AddServicePopover";
 import { Avatar } from "./Avatar";
 import { cloneCommand, serviceChipLabel } from "./overview-view";
 import { useCopy } from "./primitives";
@@ -37,7 +38,17 @@ const monoChipStyle = {
   padding: "3px 9px",
 } as const;
 
-export function ProjectHeader({ project }: { project: OverviewProject }) {
+export function ProjectHeader({
+  project,
+  api,
+  onServiceAdded,
+}: {
+  project: OverviewProject;
+  /** API client for the add-service popover (defaults to the singleton). */
+  api?: AddServiceApi;
+  /** Called after a service is added — the screen refetches the overview. */
+  onServiceAdded?: () => void;
+}) {
   const { copied, copy } = useCopy();
   const primaryRepo = project.repos[0];
 
@@ -96,6 +107,12 @@ export function ProjectHeader({ project }: { project: OverviewProject }) {
                 {serviceChipLabel(s)}
               </span>
             ))}
+            <AddServicePopover
+              projectId={project.id}
+              services={project.services}
+              api={api}
+              onAdded={onServiceAdded}
+            />
           </div>
 
           {project.initialized_by && (
