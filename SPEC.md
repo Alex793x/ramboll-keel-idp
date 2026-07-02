@@ -426,3 +426,122 @@ authored complete + validated in CI (toolchains absent locally — documented). 
 - [ ] Resolver property suite proven: root-only change ⇒ no services; svc change ⇒ exactly closure;
       shared change ⇒ all (demonstrated with real `git diff` output on the generated monolith).
 - [ ] Hub wizard drives the whole flow against the live API.
+
+---
+
+## 18. v4 — Project dashboard (`/projects/:id`) — contract + design brief
+
+**Goal.** Clicking a project opens a *breathtaking, applefied* mission-control page: everything a
+team member needs to onboard and manage — branches (the centerpiece), last commits, running CI and
+status, who initialized it, the crew, and day-one onboarding. **Out of scope:** observability,
+deployment state.
+
+### 18.1 Wire contract — `GET /api/projects/:id/overview` → `200 ProjectOverviewDto` | `404 {error}`
+
+All timestamps are **unix epoch seconds (i64)** — no new Rust deps; the hub formats relative time
+with a pure, tested `timeAgo(epochS, nowS)`.
+
+```jsonc
+{
+  "project": { "id", "name", "description", "gba", "status",          // Healthy|Warning|Critical|Experimental
+               "layout",                                                // "multi-repo"|"monolith"
+               "services": [{ "dir", "type", "lang", "name" }],
+               "initialized_by": { "id","name","github_login","chapter" } | null,
+               "initialized_at": 0 | null,
+               "blueprint", "blueprint_version",
+               "repos": [{ "name", "html_url", "default_branch" }] },
+  "team":     [{ "user": { "id","name","github_login","chapter" },
+                 "role": "owner"|"contributor",
+                 "active_branch": "feature/…" | null, "last_active": 0 }],
+  "branches": [{ "name", "kind": "main"|"staging"|"dev"|"feature"|"bug"|"hotfix",
+                 "ahead": 0, "behind": 0,                              // vs dev (rails: vs main)
+                 "author": { "name","github_login" } | null,
+                 "tip": { "sha", "message", "at" },
+                 "ci": "running"|"passed"|"failed"|"none",
+                 "pr": { "number","title","target","reviews_done","reviews_required" } | null,
+                 "commits": [{ "sha","message","author_login","at" }] }],   // ≤5, desc by at
+  "runs":     [{ "id", "workflow": "build"|"test"|"validate"|"gate",
+                 "branch", "status": "running"|"queued"|"passed"|"failed",
+                 "started_at": 0, "duration_s": 0 | null,               // null ⇔ running|queued
+                 "triggered_by": "github_login", "trigger_sha": "" }],
+  "commits":  [{ "sha", "message", "author": { "name","github_login" }, "branch", "at" }] // ≤20 desc
+}
+```
+
+### 18.2 Server-side generator (keel-api) — deterministic mock, real facts merged
+
+Pure `fn overview(id, catalog_row: Option<&InitOutcome>, people, now_s) -> ProjectOverviewDto`:
+- Seed = FNV-1a(id) driving a tiny xorshift PRNG (no `rand` dep). **Same id ⇒ identical structure**;
+  timestamps are `now_s − stable_offset` so the page always feels alive.
+- Knows the **6 seeded design projects** (ids/rows byte-equal to `hub/src/lib/hub-data.ts` PROJECTS)
+  *and* real catalog projects (matched by project name or catalog id): real rows contribute
+  `repos`, `blueprint_version`, `layout`, `services`; the rest is generated. `initialized_by` for
+  real rows is honestly best-effort (catalog does not persist the author) — pick deterministically
+  from `people` and document it.
+- **Invariants (proptest-pinned):** exactly one each of main/staging/dev; 1..=5 working branches,
+  every name matching `^(feature|bug|hotfix)/[a-z0-9]+(-[a-z0-9]+)*$`; working `ahead ≥ 1`; rails
+  `ahead = 0`; per-branch commits + flat feed sorted desc, all `at ≤ now_s`; `duration_s = null ⇔
+  status ∈ {running, queued}`; each branch's `ci` equals the status of its latest run (`none` if no
+  runs); every `author`/`triggered_by` drawn from `people`; 404 for unknown ids.
+
+### 18.3 The page — layout + the novel branch exploration ("the Flow")
+
+Design language: existing dark tokens (`hub/src/design/tokens.ts`), Nunito + JetBrains Mono, glass
+cards `#0A1B33` on `#061021`, the design's exact motion (`fadeUp`, `popIn`, `edgeDraw`,
+`cubic-bezier(0.2,0.7,0.2,1)`, 70ms stagger). Applefied = generous whitespace, one focal point,
+depth from layered shadows, no chrome.
+
+```
+← Projects                                                       [status chip]
+RMB-EN-042 (mono, cyan, letterspaced)
+District Heating Optimizer (38px/800)                 [Open repo] [Docs] [⧉ clone]
+description · GBA chip · layout chip · service chips
+Laid down by ⬤ Kristoffer Pedersen · 12 May 2026 · from api-python v0.3.0
+
+┌─ THE FLOW — full-width glass panel (the centerpiece) ──────────────────────┐
+│  main    ━━━━━━━━━━━━━━━━━━━━━━━━━━━ 🛡                                    │
+│  staging ━━━━━━━━━━━━━━━━━━━━━━━━━━━                                       │
+│  dev     ━━━━━┳━━━━━━━┳━━━━━━━━━━━━━                                       │
+│     feature/… ┗●──●──●⟳ ⬤MK  +3        (tributaries fork from dev; commit │
+│     bug/…      ┗●──●✓ ⬤JJ +1 PR#12      ticks; CI pulse at tip; avatar)    │
+└────────────────────────────────────────────────────────────────────────────┘
+[ Pipelines (runs, running first, live) ][ Activity (day-grouped commits) ][ sticky: Crew · Day one ]
+```
+
+**The Flow** (`BranchFlow`) mirrors the governance Keel itself enforces — that's why it "just makes
+sense": three permanent **rails** (main brightest + shield, staging, dev) and working branches as
+**tributaries** forking off dev with curved connectors (dashed return curve when a PR is open).
+Per tributary: kind-colored dot (feature `#66C1F3` · bug `#FFE682` · hotfix `#FF8855`), mono name,
+author avatar chip, ≤5 commit ticks (hover → tooltip: sha · message · age), CI pulse at the tip
+(running = pulsing ring, passed = `#ADD095` check, failed = `#FF8855` ✗), `+ahead −behind` counters.
+**Interaction:** hover lifts a lane and dims the rest (KB-diagram pattern); **click enters focus
+mode** — the lane expands inline into a detail strip (commit list, PR + reviews, latest run per
+workflow, "Open PR →") while others compress; Esc/click-away restores; ArrowUp/Down move focus.
+Entrance: rails `edgeDraw`, tributaries `popIn` staggered.
+
+**Pipelines** — runs with running-first ordering, pulsing dot + ticking elapsed for running,
+duration for finished, workflow name, branch chip, trigger avatar. **Activity** — commits grouped
+Today/Yesterday/date; conventional-commit type badge; sha in mono, click-to-copy. **Crew** — owners
+first (OWNER tag), avatar/name/chapter, "on `feature/…`" active branch, last-active. **Day one**
+(onboarding) — copyable `git clone` per repo, docs link, the 3 embedded skills as chips, branch-rule
+reminder (`feature|bug|hotfix/<ticket>-<slug>`), CODEOWNERS summary.
+
+### 18.4 Area ownership (fleet)
+
+| Area | Exclusive files |
+| --- | --- |
+| **A — overview API** | `crates/keel-api/src/overview.rs` (new) + minimal wiring lines in `routes.rs`/`lib.rs` + `tracker/overview-api.md` |
+| **B — dashboard** | `hub/src/routes/projects.$projectId.tsx`, `hub/src/components/project/**` **except** `flow/`, `hub/src/lib/{time.ts,api.ts additions}`, row-links in ProjectsScreen/HomeScreen, `tracker/project-page.md` |
+| **C — BranchFlow** | `hub/src/components/project/flow/**` only + `tracker/branch-flow.md` |
+
+Shared types for B+C are **frozen by the orchestrator** in `hub/src/lib/types.ts` before dispatch.
+`BranchFlow` is purely presentational: `{ branches: OverviewBranch[]; onSelect?: (name: string |
+null) => void }` — no fetching, internal focus state only.
+
+### 18.5 v4 Definition of Done
+- [ ] `GET /api/projects/:id/overview` live for all 6 seeded + real catalog projects; 404 otherwise;
+      proptests pin §18.2 invariants; workspace gates green.
+- [ ] `/projects/:id` renders the full dashboard from the live API (loading + error states styled);
+      Projects/Home rows navigate to it.
+- [ ] BranchFlow: hover lift/dim, click focus mode, keyboard nav, entrance animation — tested.
+- [ ] Hub gates green (tsc, Vitest incl. fast-check `timeAgo` + generator-shape guards).

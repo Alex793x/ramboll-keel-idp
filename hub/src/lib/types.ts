@@ -162,3 +162,122 @@ export const WORKFLOW_STEPS: readonly { key: string; title: string }[] = [
   { key: "seed_ci", title: "Seed CI" },
   { key: "register", title: "Register in catalog" },
 ] as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v4 — Project dashboard (`GET /api/projects/:id/overview`, SPEC §18)
+// All timestamps are unix epoch SECONDS; the hub renders relative time via
+// `timeAgo` (src/lib/time.ts). These shapes are the frozen wire contract.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A person reference as it appears throughout the overview payload. */
+export interface OverviewPerson {
+  id: string;
+  name: string;
+  github_login: string;
+  chapter: string;
+}
+
+/** One repository of the project (multi-repo has several; monolith exactly one). */
+export interface OverviewRepo {
+  name: string;
+  html_url: string;
+  default_branch: string;
+}
+
+/** A service component of the project (mirrors keel.services.json entries). */
+export interface OverviewService {
+  dir: string;
+  type: string;
+  lang: string;
+  name: string;
+}
+
+export type ProjectStatus = "Healthy" | "Warning" | "Critical" | "Experimental";
+export type BranchKind = "main" | "staging" | "dev" | "feature" | "bug" | "hotfix";
+export type CiState = "running" | "passed" | "failed" | "none";
+export type RunStatus = "running" | "queued" | "passed" | "failed";
+export type WorkflowName = "build" | "test" | "validate" | "gate";
+
+/** The project header block of the overview. */
+export interface OverviewProject {
+  id: string;
+  name: string;
+  description: string;
+  gba: string;
+  status: ProjectStatus;
+  layout: "multi-repo" | "monolith";
+  services: OverviewService[];
+  initialized_by: OverviewPerson | null;
+  initialized_at: number | null;
+  blueprint: string;
+  blueprint_version: string;
+  repos: OverviewRepo[];
+}
+
+/** A crew member with their current focus. */
+export interface OverviewTeamMember {
+  user: OverviewPerson;
+  role: "owner" | "contributor";
+  active_branch: string | null;
+  last_active: number;
+}
+
+/** A single commit as shown on a branch lane (compact). */
+export interface OverviewBranchCommit {
+  sha: string;
+  message: string;
+  author_login: string;
+  at: number;
+}
+
+/** An open pull request attached to a working branch. */
+export interface OverviewPr {
+  number: number;
+  title: string;
+  target: string;
+  reviews_done: number;
+  reviews_required: number;
+}
+
+/** One branch of the Flow — rails (main/staging/dev) and working tributaries. */
+export interface OverviewBranch {
+  name: string;
+  kind: BranchKind;
+  ahead: number;
+  behind: number;
+  author: { name: string; github_login: string } | null;
+  tip: { sha: string; message: string; at: number };
+  ci: CiState;
+  pr: OverviewPr | null;
+  commits: OverviewBranchCommit[];
+}
+
+/** One CI/CD run in the Pipelines panel. */
+export interface OverviewRun {
+  id: string;
+  workflow: WorkflowName;
+  branch: string;
+  status: RunStatus;
+  started_at: number;
+  duration_s: number | null;
+  triggered_by: string;
+  trigger_sha: string;
+}
+
+/** One commit in the flat Activity feed. */
+export interface OverviewCommit {
+  sha: string;
+  message: string;
+  author: { name: string; github_login: string };
+  branch: string;
+  at: number;
+}
+
+/** The full `GET /api/projects/:id/overview` payload (SPEC §18.1). */
+export interface ProjectOverview {
+  project: OverviewProject;
+  team: OverviewTeamMember[];
+  branches: OverviewBranch[];
+  runs: OverviewRun[];
+  commits: OverviewCommit[];
+}
