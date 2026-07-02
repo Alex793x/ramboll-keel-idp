@@ -1,40 +1,89 @@
 /**
  * WizardScreen — the "Initialize a project" golden-path form: Identity,
  * Contributors and Service components cards on the left, the LiveBlueprint
- * panel on the right, plus the provisioning overlay and its 750ms step timer.
+ * panel on the right, plus the provisioning overlay.
  *
  * Ported EXACTLY from `Ramboll Developer Hub.dc.html` lines 396–488 (markup),
- * 1044–1116 (chip/row styles + repo naming), 1214–1223 (init button + hint)
- * and 689–703 (`startProvisioning` timing). When provisioning completes the
- * component reports the created project via `onCreated`; the `/new` route
- * swaps to `CreatedScreen`.
+ * 1044–1116 (chip/row styles + repo naming) and 1214–1223 (init button +
+ * hint). v3 (SPEC §13/§16): the chips render IDENTICALLY but from LIVE data
+ * (`/api/departments`, `/api/users`, `/api/service-catalog`; the design
+ * constants remain the pre-fetch fallback), unavailable languages get the
+ * sidebar's dimmed SOON treatment, card 03 gains the repository-layout
+ * selector (GBA-chip vocabulary), and Initialize drives the REAL engine via
+ * `POST /api/initialize` — the overlay animates the returned 8 workflow
+ * events at `EVENT_TICK_MS` before handing off to `CreatedScreen`.
  */
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { color, font } from '../../design/tokens';
+import { getApi, type KeelApi } from '../../lib/api';
+import { getSession } from '../../lib/auth';
+import type {
+  CatalogServiceType,
+  Contributor,
+  Department,
+  InitializeResponse,
+} from '../../lib/types';
 import {
+  DEFAULT_LAYOUT,
+  EVENT_TICK_MS,
   GBAS,
+  LAYOUT_HINTS,
+  LAYOUT_OPTIONS,
   PEOPLE,
-  PROV_STEPS,
-  PROV_TICK_MS,
-  TYPES,
+  buildInitializePayload,
   canInit,
+  catalogEntry,
+  defaultLang,
+  designCatalog,
+  initErrorMessage,
   initHint,
   initials,
+  provRowsFromEvents,
   repoName,
   slugOf,
-  typeOf,
   type CreatedProject,
+  type RepoLayout,
   type Service,
+  type ServiceTypeId,
   type WizardDraft,
 } from '../../lib/wizard-model';
 import { LiveBlueprint } from './LiveBlueprint';
 import { ProvisioningOverlay } from './ProvisioningOverlay';
 import './wizard.css';
 
+/** The slice of the API client the wizard consumes (injectable for tests). */
+export type WizardApi = Pick<
+  KeelApi,
+  'listDepartments' | 'getUsers' | 'getServiceCatalog' | 'initialize'
+>;
+
 export interface WizardScreenProps {
   /** Called once, when the provisioning sequence finishes. */
   onCreated: (created: CreatedProject) => void;
+  /** API client override for tests; defaults to the shared singleton. */
+  api?: WizardApi;
 }
+
+/** Provisioning lifecycle: request in flight → animate the real events. */
+type ProvState =
+  | { phase: 'idle' }
+  | { phase: 'pending' }
+  | { phase: 'animating'; response: InitializeResponse; step: number }
+  | { phase: 'failed'; message: string };
+
+/** Pre-fetch fallbacks so the design pixels render before/without the API. */
+const FALLBACK_DEPARTMENTS: readonly Department[] = GBAS.map((name) => ({
+  id: slugOf(name),
+  name,
+  team_slug: slugOf(name),
+}));
+const FALLBACK_USERS: readonly Contributor[] = PEOPLE.map((p) => ({
+  id: slugOf(p.name),
+  name: p.name,
+  email: '',
+  github_login: '',
+  chapter: p.chapter,
+}));
 
 /** Shared card chrome for the three numbered sections (design lines 407/433/448). */
 const cardStyle: CSSProperties = {
@@ -85,41 +134,139 @@ const labelStyle: CSSProperties = {
   color: color.cyan100,
 };
 
-export function WizardScreen({ onCreated }: WizardScreenProps) {
+/** GBA-style selector chip (design line 427 vocabulary) — also the layout pills. */
+function selectChipStyle(sel: boolean): CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '8px 16px',
+    borderRadius: 9999,
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: 'pointer',
+    userSelect: 'none',
+    background: sel ? color.cyan500 : 'rgba(204,234,251,0.06)',
+    color: sel ? color.white : color.muted,
+    border: sel ? `1px solid ${color.cyan500}` : '1px solid rgba(155,173,197,0.22)',
+    transition: 'all 140ms',
+  };
+}
+
+/** The sidebar's SOON chip — mono 9px bordered (design line 82), verbatim. */
+const soonChipStyle: CSSProperties = {
+  fontFamily: font.mono,
+  fontSize: 9,
+  letterSpacing: '0.1em',
+  color: color.dim,
+  border: '1px solid rgba(105,132,168,0.4)',
+  borderRadius: 4,
+  padding: '2px 5px',
+};
+
+export function WizardScreen({ onCreated, api }: WizardScreenProps) {
+  const client: WizardApi = useMemo(() => api ?? getApi(), [api]);
+
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [gba, setGba] = useState<string | null>(null);
   const [contributors, setContributors] = useState<readonly string[]>([]);
   const [services, setServices] = useState<readonly Service[]>([]);
-  /** -1 = not provisioning (design `state.provStep`). */
-  const [provStep, setProvStep] = useState(-1);
+  const [layout, setLayout] = useState<RepoLayout>(DEFAULT_LAYOUT);
+
+  // Live directory data (SPEC §16); design constants stand in until fetched.
+  const [departments, setDepartments] = useState<readonly Department[]>(FALLBACK_DEPARTMENTS);
+  const [users, setUsers] = useState<readonly Contributor[]>(FALLBACK_USERS);
+  const [catalog, setCatalog] = useState<readonly CatalogServiceType[]>(designCatalog());
+
+  const [prov, setProv] = useState<ProvState>({ phase: 'idle' });
+
+  useEffect(() => {
+    let cancelled = false;
+    client
+      .listDepartments()
+      .then((d) => {
+        if (!cancelled && d.length > 0) setDepartments(d);
+      })
+      .catch(() => {});
+    client
+      .getUsers()
+      .then((u) => {
+        if (!cancelled && u.length > 0) setUsers(u);
+      })
+      .catch(() => {});
+    client
+      .getServiceCatalog()
+      .then((c) => {
+        if (!cancelled && c.length > 0) setCatalog(c);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
 
   const draft: WizardDraft = { name, gba, services };
   const slug = slugOf(name);
   const can = canInit(draft);
-  const provisioning = provStep >= 0;
+  const provisioning = prov.phase !== 'idle';
+  const overlayRows = provRowsFromEvents(
+    prov.phase === 'animating' ? prov.response.events : [],
+  );
+  const overlayStep =
+    prov.phase === 'animating' ? prov.step : prov.phase === 'pending' ? 0 : -1;
 
-  // Design lines 693–702: advance one step every 750ms while provisioning.
+  // Animate the returned events row by row (the response arrives complete).
   useEffect(() => {
-    if (!provisioning) return undefined;
+    if (prov.phase !== 'animating') return undefined;
     const id = setInterval(() => {
-      setProvStep((s) => s + 1);
-    }, PROV_TICK_MS);
+      setProv((p) => (p.phase === 'animating' ? { ...p, step: p.step + 1 } : p));
+    }, EVENT_TICK_MS);
     return () => clearInterval(id);
-  }, [provisioning]);
+  }, [prov.phase]);
 
-  // Design lines 696–698: one tick past the last step, hand off to `created`.
+  // One tick past the last row (design cadence), hand off to `created`.
   useEffect(() => {
-    if (provStep !== PROV_STEPS.length + 1) return;
+    if (prov.phase !== 'animating') return;
+    if (prov.step <= provRowsFromEvents(prov.response.events).length) return;
     if (gba === null) return; // unreachable: provisioning only starts when canInit
-    setProvStep(-1);
-    onCreated({ name, gba, services: [...services], contributors: [...contributors] });
-  }, [provStep, name, gba, services, contributors, onCreated]);
+    const outcome = prov.response.outcome;
+    const repos = outcome.repos.length > 0 ? outcome.repos : [outcome.repo];
+    setProv({ phase: 'idle' });
+    onCreated({
+      name,
+      gba,
+      services: [...services],
+      contributors: [...contributors],
+      repos,
+    });
+  }, [prov, name, gba, services, contributors, onCreated]);
 
-  // Design lines 689–692: no-op unless name, GBA and ≥1 service are present.
+  // v3: POST the real payload; the overlay opens immediately (pending phase).
   const startProvisioning = () => {
-    if (!canInit({ name, gba, services })) return;
-    setProvStep(0);
+    if (!canInit({ name, gba, services }) || prov.phase !== 'idle') return;
+    const payload = buildInitializePayload({
+      name,
+      description: desc,
+      gba,
+      contributors,
+      services,
+      layout,
+      departments,
+      users,
+      catalog,
+      author: getSession()?.name ?? 'Hub user',
+    });
+    setProv({ phase: 'pending' });
+    client.initialize(payload).then(
+      (response) =>
+        setProv((p) =>
+          p.phase === 'pending' ? { phase: 'animating', response, step: 0 } : p,
+        ),
+      (err: unknown) =>
+        setProv((p) =>
+          p.phase === 'pending' ? { phase: 'failed', message: initErrorMessage(err) } : p,
+        ),
+    );
   };
 
   return (
@@ -197,30 +344,15 @@ export function WizardScreen({ onCreated }: WizardScreenProps) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <label style={labelStyle}>Global Business Area</label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {GBAS.map((g) => {
-                    const sel = gba === g;
+                  {departments.map((d) => {
+                    const sel = gba === d.name;
                     return (
                       <span
-                        key={g}
-                        onClick={() => setGba(sel ? null : g)}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '8px 16px',
-                          borderRadius: 9999,
-                          fontSize: 13,
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          userSelect: 'none',
-                          background: sel ? color.cyan500 : 'rgba(204,234,251,0.06)',
-                          color: sel ? color.white : color.muted,
-                          border: sel
-                            ? `1px solid ${color.cyan500}`
-                            : '1px solid rgba(155,173,197,0.22)',
-                          transition: 'all 140ms',
-                        }}
+                        key={d.id}
+                        onClick={() => setGba(sel ? null : d.name)}
+                        style={selectChipStyle(sel)}
                       >
-                        {g}
+                        {d.name}
                       </span>
                     );
                   })}
@@ -236,11 +368,11 @@ export function WizardScreen({ onCreated }: WizardScreenProps) {
               CODEOWNERS entries.
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {PEOPLE.map((p) => {
+              {users.map((p) => {
                 const sel = contributors.includes(p.name);
                 return (
                   <span
-                    key={p.name}
+                    key={p.id}
                     onClick={() =>
                       setContributors((cs) =>
                         sel ? cs.filter((x) => x !== p.name) : [...cs, p.name],
@@ -301,12 +433,16 @@ export function WizardScreen({ onCreated }: WizardScreenProps) {
                 marginBottom: 18,
               }}
             >
-              {TYPES.map((t) => (
+              {catalog.map((t) => (
                 <div
                   key={t.id}
                   className="wz-type-card"
                   onClick={() =>
-                    setServices((s) => [...s, { type: t.id, lang: t.langs[0] }])
+                    setServices((s) => [
+                      ...s,
+                      // The wire contract guarantees the 5 design type ids.
+                      { type: t.id as ServiceTypeId, lang: defaultLang(t) },
+                    ])
                   }
                   style={{
                     border: '1px dashed rgba(155,173,197,0.3)',
@@ -346,10 +482,42 @@ export function WizardScreen({ onCreated }: WizardScreenProps) {
                 </div>
               ))}
             </div>
+            <div style={{ marginBottom: services.length > 0 ? 18 : 0 }}>
+              <div
+                style={{
+                  fontFamily: font.mono,
+                  fontSize: 10,
+                  letterSpacing: '0.1em',
+                  color: color.dim,
+                  marginBottom: 8,
+                }}
+              >
+                REPOSITORY LAYOUT
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {LAYOUT_OPTIONS.map((opt) => {
+                  const sel = layout === opt.id;
+                  return (
+                    <span
+                      key={opt.id}
+                      onClick={() => setLayout(opt.id)}
+                      style={selectChipStyle(sel)}
+                    >
+                      {opt.label}
+                    </span>
+                  );
+                })}
+              </div>
+              <div
+                style={{ fontFamily: font.mono, fontSize: 10.5, color: color.dim, marginTop: 8 }}
+              >
+                {LAYOUT_HINTS[layout]}
+              </div>
+            </div>
             {services.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {services.map((sv, i) => {
-                  const t = typeOf(sv.type);
+                  const t = catalogEntry(catalog, sv.type);
                   return (
                     <div
                       key={`${sv.type}-${i}`}
@@ -396,13 +564,39 @@ export function WizardScreen({ onCreated }: WizardScreenProps) {
                         }}
                       >
                         {t.langs.map((l) => {
-                          const picked = sv.lang === l;
+                          const picked = sv.lang === l.name;
+                          if (!l.available) {
+                            // Dimmed + SOON (the sidebar's established pattern), not selectable.
+                            return (
+                              <span
+                                key={l.id}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  padding: '5px 12px',
+                                  borderRadius: 9999,
+                                  fontSize: 11.5,
+                                  fontWeight: 700,
+                                  cursor: 'default',
+                                  userSelect: 'none',
+                                  opacity: 0.75,
+                                  background: 'rgba(204,234,251,0.06)',
+                                  color: color.dim,
+                                  border: '1px solid rgba(155,173,197,0.2)',
+                                }}
+                              >
+                                {l.name}
+                                <span style={soonChipStyle}>SOON</span>
+                              </span>
+                            );
+                          }
                           return (
                             <span
-                              key={l}
+                              key={l.id}
                               onClick={() =>
                                 setServices((s) =>
-                                  s.map((x, j) => (j === i ? { ...x, lang: l } : x)),
+                                  s.map((x, j) => (j === i ? { ...x, lang: l.name } : x)),
                                 )
                               }
                               style={{
@@ -421,7 +615,7 @@ export function WizardScreen({ onCreated }: WizardScreenProps) {
                                 transition: 'all 130ms',
                               }}
                             >
-                              {l}
+                              {l.name}
                             </span>
                           );
                         })}
@@ -475,10 +669,24 @@ export function WizardScreen({ onCreated }: WizardScreenProps) {
         </div>
 
         {/* Right: live blueprint */}
-        <LiveBlueprint name={name} gba={gba} contributors={contributors} services={services} />
+        <LiveBlueprint
+          name={name}
+          gba={gba}
+          contributors={contributors}
+          services={services}
+          layout={layout}
+        />
       </div>
 
-      {provisioning && <ProvisioningOverlay name={name} provStep={provStep} />}
+      {provisioning && (
+        <ProvisioningOverlay
+          name={name}
+          rows={overlayRows}
+          provStep={overlayStep}
+          error={prov.phase === 'failed' ? prov.message : null}
+          onDismiss={() => setProv({ phase: 'idle' })}
+        />
+      )}
     </div>
   );
 }

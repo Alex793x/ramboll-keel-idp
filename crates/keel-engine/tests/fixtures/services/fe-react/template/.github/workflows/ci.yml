@@ -1,0 +1,9 @@
+# Verbatim file: GitHub Actions ${{ }} expressions MUST survive untouched (no .j2 suffix).
+# In a monolith this whole .github/ tree is DROPPED (the root blueprint owns CI).
+name: ci
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "node ${{ matrix.node }}"

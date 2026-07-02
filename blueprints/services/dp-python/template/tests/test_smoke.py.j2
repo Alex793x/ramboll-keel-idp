@@ -1,0 +1,56 @@
+"""Smoke tests for {{ project_name }}.
+
+These confirm the package imports and that the pipeline behaves on a few
+concrete, hand-picked examples. The exhaustive coverage lives in
+``test_properties.py``.
+"""
+
+from __future__ import annotations
+
+import {{ package_name }}
+from {{ package_name }}.pipeline import (
+    normalize_key,
+    normalize_record,
+    normalize_records,
+    normalize_value,
+    partition_records,
+)
+
+
+def test_package_has_version() -> None:
+    """The package exposes a non-empty version string."""
+    assert isinstance({{ package_name }}.__version__, str)
+    assert {{ package_name }}.__version__
+
+
+def test_normalize_key_examples() -> None:
+    """Headings become snake_case identifiers."""
+    assert normalize_key("Sensor ID") == "sensor_id"
+    assert normalize_key("  Temperatur (°C)  ") == "temperatur_c"
+    assert normalize_key("Café__Zone") == "cafe_zone"
+    assert normalize_key("!!!") == ""
+
+
+def test_normalize_value_examples() -> None:
+    """Cell text is whitespace-normalised."""
+    assert normalize_value("  12.5   °C \n") == "12.5 °C"
+    assert normalize_value("") == ""
+
+
+def test_normalize_record_examples() -> None:
+    """Keys are cleaned, empties dropped, first collision wins."""
+    raw = {"Sensor ID": " s-01 ", "sensor  id": "dup", "???": "junk", "Value": "  7 "}
+    assert normalize_record(raw) == {"sensor_id": "s-01", "value": "7"}
+
+
+def test_normalize_records_examples() -> None:
+    """Batch normalisation is one-output-per-input."""
+    assert normalize_records([{"A": "1"}, {"B": " 2 "}]) == [{"a": "1"}, {"b": "2"}]
+    assert normalize_records([]) == []
+
+
+def test_partition_records_examples() -> None:
+    """The pipeline fork keeps order and loses nothing."""
+    valid, rework = partition_records([1, 2, 3, 4], lambda n: n % 2 == 0)
+    assert valid == [2, 4]
+    assert rework == [1, 3]

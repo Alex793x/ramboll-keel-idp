@@ -5,16 +5,32 @@
  * Ported EXACTLY from `Ramboll Developer Hub.dc.html` lines 541–560 (markup)
  * and 1143–1151 / 1227 (repos, summary, id). Navigation is delegated to the
  * route via `onGoHome` / `onGoProjects`.
+ *
+ * v3: the repo chips are the REAL `outcome.repos` (`owner/name`, each an
+ * anchor to its `html_url`, same chip styling); without repos they fall back
+ * to the design's derived `ramboll/{slug}-{type}` chips.
  */
+import type { CSSProperties } from 'react';
 import { ICONS, PathIcon } from '../../design/icons';
 import { color, font } from '../../design/tokens';
 import {
   createdId,
-  createdRepos,
+  createdRepoChips,
   createdSummary,
   type CreatedProject,
 } from '../../lib/wizard-model';
 import './wizard.css';
+
+/** Repo chip styling — design line 553, verbatim (shared by span + anchor). */
+const repoChipStyle: CSSProperties = {
+  fontFamily: font.mono,
+  fontSize: 11,
+  color: color.cyan200,
+  background: 'rgba(153,214,247,0.1)',
+  border: '1px solid rgba(153,214,247,0.25)',
+  borderRadius: 6,
+  padding: '6px 12px',
+};
 
 export interface CreatedScreenProps {
   created: CreatedProject;
@@ -94,22 +110,23 @@ export function CreatedScreen({ created, onGoHome, onGoProjects }: CreatedScreen
           marginBottom: 36,
         }}
       >
-        {createdRepos(created).map((cr, i) => (
-          <span
-            key={`${cr}-${i}`}
-            style={{
-              fontFamily: font.mono,
-              fontSize: 11,
-              color: color.cyan200,
-              background: 'rgba(153,214,247,0.1)',
-              border: '1px solid rgba(153,214,247,0.25)',
-              borderRadius: 6,
-              padding: '6px 12px',
-            }}
-          >
-            {cr}
-          </span>
-        ))}
+        {createdRepoChips(created).map((cr, i) =>
+          cr.href !== null ? (
+            <a
+              key={`${cr.label}-${i}`}
+              href={cr.href}
+              target="_blank"
+              rel="noreferrer"
+              style={{ ...repoChipStyle, textDecoration: 'none' }}
+            >
+              {cr.label}
+            </a>
+          ) : (
+            <span key={`${cr.label}-${i}`} style={repoChipStyle}>
+              {cr.label}
+            </span>
+          ),
+        )}
       </div>
       <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
         <button

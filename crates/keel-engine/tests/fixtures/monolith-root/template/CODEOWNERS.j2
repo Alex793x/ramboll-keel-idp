@@ -1,0 +1,4 @@
+# Root-owned CODEOWNERS (department + selected users).
+* @{{ department.team_slug }}
+{% for u in users %}* @{{ u.github_login }}
+{% endfor %}

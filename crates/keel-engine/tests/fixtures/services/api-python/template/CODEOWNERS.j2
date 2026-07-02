@@ -1,0 +1,4 @@
+# Owners derived from the selected department + users (dropped in a monolith).
+* @{{ department.team_slug }}
+{% for u in users %}* @{{ u.github_login }}
+{% endfor %}

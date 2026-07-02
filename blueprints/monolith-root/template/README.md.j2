@@ -1,0 +1,89 @@
+# {{ project_name }}
+
+> {{ description }}
+
+A Ramboll **monolith** — one repository, many services — owned by the
+**{{ department.name }}** department
+({% for u in users %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}).
+Generated from the Ramboll Developer Platform (Keel) `monolith-root`
+golden-path blueprint — **green from birth**: the root gate and every
+locally-verifiable service pass their tests on the very first commit.
+
+_Bright ideas. Sustainable change._
+
+---
+
+## Services
+
+| Dir | Type | Language | Path |
+| --- | --- | --- | --- |
+{% for s in services %}| `{{ s.dir }}` | {{ s.label }} | {{ s.lang }} | [`services/{{ s.dir }}/`](services/{{ s.dir }}/) |
+{% endfor %}
+The machine-readable index is [`keel.services.json`](keel.services.json) — the
+single source of truth the CI resolver reads. Adding a service means adding a
+directory under `services/` **and** an entry there (see
+`.claude/skills/monorepo-selective-ci/SKILL.md`).
+
+## How the smart CI works
+
+Every push and PR runs [.github/workflows/ci.yml](.github/workflows/ci.yml),
+which starts with a **`detect`** job: it diffs the pushed range (or the PR
+against its base), feeds the changed paths plus `keel.services.json` into the
+pure resolver [`.github/scripts/detect_services.py`](.github/scripts/detect_services.py),
+and emits the exact set of **affected services**. A change under
+`services/api/` rebuilds `api` — and, transitively, every service that
+`depends_on` it — while a root README edit rebuilds no service at all.
+
+Safety is baked in rather than bolted on. A change under any shared path
+(`.github/`, `keel.services.json`, `libs/` by default) rebuilds **everything**,
+and whenever the diff cannot be computed (first push, force-push, resolver
+error) the pipeline degrades to a **full rebuild** instead of skipping work —
+the resolver is a total function that never fails the build. The **`gate`**
+job always runs regardless of what changed: it executes the Hypothesis
+property suite in [`tests/`](tests/) that proves the resolver's own rules
+(monotonicity, isolation, closure, determinism, fallback) and validates the
+manifest — so this repository continuously tests its own pipeline logic.
+
+Affected services then fan out as a **matrix** job with per-language steps
+(python: pytest/ruff/black/mypy · node/react: npm ci/test/build · go:
+vet/test/build · dotnet: test · terraform: fmt/validate), each running in
+`services/<dir>/`. The full contract with worked examples is in
+[`docs/ci.md`](docs/ci.md).
+
+## Branching model
+
+This repository uses the platform's three long-lived branches:
+
+| Branch | Purpose |
+| --- | --- |
+| `main` | Production. Protected — PR + review + green `gate` check required. |
+| `dev` | Integration. PRs target this branch. |
+| `staging` | Pre-production validation. |
+
+Work happens on short-lived branches off `dev`, named **exactly**:
+
+- `feature/<ticket>-<slug>` — new behaviour
+- `bug/<ticket>-<slug>` — defect fix
+- `hotfix/<ticket>-<slug>` — urgent production fix
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## Standards as code — the embedded AI skills
+
+The engineering standards are embedded as AI agent skills under `.claude/skills/`,
+so any coding agent (Claude Code, Cursor, Copilot, …) adopts them automatically:
+
+- [`monorepo-selective-ci`](.claude/skills/monorepo-selective-ci/SKILL.md) —
+  the `keel.services.json` contract and how to add services safely.
+- [`property-based-testing`](.claude/skills/property-based-testing/SKILL.md) —
+  every pure function ships with Hypothesis property tests.
+- [`python-clean-code`](.claude/skills/python-clean-code/SKILL.md) — small, typed,
+  lint/format/type-clean functions.
+- [`git-ci-governance`](.claude/skills/git-ci-governance/SKILL.md) — the branch
+  model and strict naming.
+
+See [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md).
+
+## License
+
+Ramboll Internal — see [`LICENSE`](LICENSE).

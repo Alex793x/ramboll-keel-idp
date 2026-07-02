@@ -1,0 +1,26 @@
+"""Runnable entry point for the {{ project_name }} worker.
+
+Run it with::
+
+    python -m {{ package_name }}
+
+This is deliberately the *thin, impure shell* around the pure logic in
+``worker.py``: it prints the retry plan and a batch preview, then exits. Wire
+your real loop (queue polling, processing, sleeping via ``next_delay``) here.
+"""
+
+from __future__ import annotations
+
+from {{ package_name }}.worker import retry_schedule, split_batches
+
+
+def main() -> int:
+    """Print the worker's retry plan and a demo batch split, then exit 0."""
+    print("{{ project_name }} worker — demo run (no queue wired yet)")
+    print(f"retry schedule (seconds): {retry_schedule(8)}")
+    print(f"demo batches of 4: {split_batches(list(range(10)), 4)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

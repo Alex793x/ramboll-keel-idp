@@ -21,6 +21,47 @@ export interface User {
   github_login: string;
 }
 
+/**
+ * A global contributor from `GET /api/users` (v3, SPEC §13): a {@link User}
+ * plus their chapter (keel-core `Person` — the design's PEOPLE list).
+ */
+export interface Contributor extends User {
+  chapter: string;
+}
+
+/** One language option of a service type (`GET /api/service-catalog`). */
+export interface CatalogLang {
+  /** Wire slug (e.g. `"python"`, `"dotnet"`, `"node"`) — the `lang` half of a selection. */
+  id: string;
+  /** Display name (e.g. `"Python"`, `".NET"`, `"Node.js"`). */
+  name: string;
+  /** Whether the `blueprints/services/{type}-{id}` blueprint exists. False ⇒ dimmed + SOON. */
+  available: boolean;
+}
+
+/** One of the 5 service types from `GET /api/service-catalog`, in design card order. */
+export interface CatalogServiceType {
+  /** Lowercase type id (`"fe"` … `"inf"`) — the `type` half of a selection. */
+  id: string;
+  /** Uppercase design chip tag (`"FE"` … `"INF"`). */
+  tag: string;
+  /** Human label (e.g. `"Frontend"`). */
+  label: string;
+  langs: CatalogLang[];
+}
+
+/** Repository layout for a new project (keel-core `RepoLayout`, SPEC §13). */
+export type RepoLayout = "multi-repo" | "monolith";
+
+/** Every valid layout token, default first. */
+export const REPO_LAYOUTS: readonly RepoLayout[] = ["multi-repo", "monolith"] as const;
+
+/** One chosen service component on the wire: type id + language slug. */
+export interface ServiceSelection {
+  type: string;
+  lang: string;
+}
+
 /** The kind of Python service a blueprint can produce (keel-core `ServiceKind`, kebab-case). */
 export type ServiceKind = "rest-api" | "worker";
 
@@ -66,14 +107,26 @@ export interface RepoCoordinates {
 /** The result handed back when initialization completes (keel-core `InitOutcome`). */
 export interface InitOutcome {
   project: string;
+  /** The primary repository (first created). Kept for v2 compatibility. */
   repo: RepoCoordinates;
+  /**
+   * v3: every repository created for this project (multi-repo ⇒ one per
+   * service; monolith/legacy ⇒ exactly one, equal to `repo`).
+   */
+  repos: RepoCoordinates[];
   docs_path: string;
   blueprint_version: string;
   catalog_id: string;
   events: ProgressEvent[];
 }
 
-/** Request body for `POST /api/initialize` (SPEC §3.5). */
+/**
+ * Request body for `POST /api/initialize` (SPEC §13, v2).
+ *
+ * `blueprint` / `service_kind` are legacy v1 fields — the wizard sends the
+ * inert placeholders `"python-service"` / `"rest-api"`; the engine resolves
+ * the real work from `layout` + `services`.
+ */
 export interface InitializePayload {
   project_name: string;
   blueprint: string;
@@ -82,6 +135,10 @@ export interface InitializePayload {
   service_kind: ServiceKind;
   description: string;
   author: string;
+  /** Repository layout: `"multi-repo"` (default) or `"monolith"`. */
+  layout: RepoLayout;
+  /** Chosen service components, e.g. `[{"type":"api","lang":"python"}]`. */
+  services: ServiceSelection[];
 }
 
 /** Response from `POST /api/initialize`. */

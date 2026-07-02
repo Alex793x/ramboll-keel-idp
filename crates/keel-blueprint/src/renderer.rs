@@ -21,8 +21,17 @@ pub(crate) fn render(
     blueprint_dir: &Path,
     req: &InitRequest,
 ) -> Result<Vec<RenderedFile>> {
-    let ctx_map = derive_context(req);
-    let ctx = JinjaValue::from_serialize(&ctx_map);
+    render_with_context(manifest, blueprint_dir, &derive_context(req))
+}
+
+/// Render the template tree against a pre-built context map (v3 entry point). All renderer rules
+/// are identical to [`render`] — only the context source differs.
+pub(crate) fn render_with_context(
+    manifest: &Manifest,
+    blueprint_dir: &Path,
+    ctx_map: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Vec<RenderedFile>> {
+    let ctx = JinjaValue::from_serialize(ctx_map);
 
     let mut env = Environment::new();
     // Jinja2 defaults `keep_trailing_newline=True`; MiniJinja defaults it to False and would strip
@@ -362,6 +371,50 @@ mod tests {
             proptest::prop_assert!(files.iter().any(|f| f.path.contains(&pkg)));
             proptest::prop_assert!(files.iter().all(|f| !f.path.ends_with(".j2")));
         }
+    }
+
+    #[test]
+    fn render_with_context_matches_render_for_v2_context() {
+        let dir = hermetic_template();
+        let m = manifest_with(vec![Condition {
+            when: "service_kind == 'rest-api'".into(),
+            paths: vec!["src/{{ package_name }}/api.py".into()],
+        }]);
+        let req = request(ServiceKind::RestApi);
+        let via_req = render(&m, dir.path(), &req).unwrap();
+        let via_ctx = render_with_context(&m, dir.path(), &derive_context(&req)).unwrap();
+        assert_eq!(via_req, via_ctx, "same context must yield identical output");
+    }
+
+    #[test]
+    fn render_with_context_exposes_v3_service_vars() {
+        let dir = TempDir::new().unwrap();
+        let tpl = dir.path().join("template");
+        fs::create_dir_all(&tpl).unwrap();
+        fs::write(
+            tpl.join("SERVICE.md.j2"),
+            "{{ layout }} {{ service.tag }} in {{ service.dir }} as {{ service.repo_name }}\n",
+        )
+        .unwrap();
+
+        let m = manifest_with(vec![]);
+        let mut req = request(ServiceKind::RestApi);
+        req.layout = keel_core::RepoLayout::Monolith;
+        let svc = crate::ServiceCtx {
+            tag: "api".into(),
+            dir: "api-1".into(),
+            lang: "python".into(),
+            label: "Backend API".into(),
+            repo_name: "invoicing-api-api-1".into(),
+        };
+        let ctx = crate::derive_context_v3(&req, Some(&svc), std::slice::from_ref(&svc));
+
+        let files = render_with_context(&m, dir.path(), &ctx).unwrap();
+        let f = find(&files, "SERVICE.md").expect("SERVICE.md present");
+        assert_eq!(
+            String::from_utf8_lossy(&f.contents),
+            "monolith api in api-1 as invoicing-api-api-1\n"
+        );
     }
 
     #[test]

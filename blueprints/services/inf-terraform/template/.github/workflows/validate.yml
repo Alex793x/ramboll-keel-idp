@@ -1,0 +1,23 @@
+# Validate — self-contained Terraform CI: canonical formatting. Run
+# `terraform fmt` locally to fix. The check name `validate` is part of the
+# branch-protection contract.
+name: validate
+
+on:
+  push:
+    branches: [main, dev, staging]
+  pull_request:
+
+jobs:
+  validate:
+    name: terraform fmt -check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Format check
+        run: terraform fmt -check -recursive -diff

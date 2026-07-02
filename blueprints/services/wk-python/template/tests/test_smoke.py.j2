@@ -1,0 +1,52 @@
+"""Smoke tests for {{ project_name }}.
+
+These confirm the package imports and that the worker logic behaves on a few
+concrete, hand-picked examples. The exhaustive coverage lives in
+``test_properties.py``.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+import {{ package_name }}
+from {{ package_name }}.worker import next_delay, retry_schedule, split_batches
+
+
+def test_package_has_version() -> None:
+    """The package exposes a non-empty version string."""
+    assert isinstance({{ package_name }}.__version__, str)
+    assert {{ package_name }}.__version__
+
+
+def test_next_delay_examples() -> None:
+    """The backoff doubles from 0.5s and caps at 60s."""
+    assert next_delay(1) == 0.5
+    assert next_delay(2) == 1.0
+    assert next_delay(5) == 8.0
+    assert next_delay(100) == 60.0
+
+
+def test_next_delay_rejects_bad_attempts() -> None:
+    """Attempts are 1-based; anything below is a caller bug."""
+    with pytest.raises(ValueError, match="attempt must be >= 1"):
+        next_delay(0)
+
+
+def test_retry_schedule_examples() -> None:
+    """The schedule lists one delay per attempt."""
+    assert retry_schedule(0) == []
+    assert retry_schedule(3) == [0.5, 1.0, 2.0]
+
+
+def test_split_batches_examples() -> None:
+    """Batches preserve order and never exceed the requested size."""
+    assert split_batches([1, 2, 3, 4, 5], 2) == [[1, 2], [3, 4], [5]]
+    assert split_batches([], 3) == []
+    assert split_batches(["a", "b"], 10) == [["a", "b"]]
+
+
+def test_split_batches_rejects_bad_size() -> None:
+    """A batch size below 1 is a caller bug."""
+    with pytest.raises(ValueError, match="size must be >= 1"):
+        split_batches([1], 0)

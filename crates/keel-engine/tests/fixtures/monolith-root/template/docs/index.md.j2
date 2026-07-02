@@ -1,0 +1,5 @@
+# {{ project_name }} docs
+
+Service index:
+{% for s in services %}- [{{ s.label }}](../services/{{ s.dir }}/README.md)
+{% endfor %}

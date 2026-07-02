@@ -1,0 +1,30 @@
+# Test — self-contained Node CI. Runs the Vitest suite (component tests +
+# fast-check property tests). The check name `test` is part of the
+# branch-protection contract.
+name: test
+
+on:
+  push:
+    branches: [main, dev, staging]
+  pull_request:
+
+jobs:
+  test:
+    name: Vitest (component + property)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The first commit ships no package-lock.json (versions are pinned exactly
+      # in package.json). Commit the lockfile, then switch this to `npm ci`.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Test
+        run: npm test

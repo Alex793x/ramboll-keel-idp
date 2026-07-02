@@ -1,0 +1,25 @@
+# Build — self-contained Go CI. The platform's reusable workflows are
+# Python-focused; Go services use self-contained lang CI (SPEC §14).
+# The check name `build` is part of the branch-protection contract.
+name: build
+
+on:
+  push:
+    branches: [main, dev, staging]
+  pull_request:
+
+jobs:
+  build:
+    name: go build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build
+        run: go build ./...

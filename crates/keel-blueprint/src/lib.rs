@@ -21,7 +21,7 @@ use std::path::Path;
 use keel_core::{InitRequest, KeelError, RenderedFile, Result};
 use serde::{Deserialize, Serialize};
 
-pub use context::derive_context;
+pub use context::{derive_context, derive_context_v3, ServiceCtx};
 
 /// A parsed blueprint manifest (`keel/v2`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -137,6 +137,23 @@ pub fn render(
     req: &InitRequest,
 ) -> Result<Vec<RenderedFile>> {
     renderer::render(manifest, blueprint_dir, req)
+}
+
+/// Render the template tree against a pre-built context map (v3 additive entry point, SPEC §12).
+///
+/// The engine uses this to render service blueprints with a [`derive_context_v3`] context (per
+/// service, or the monolith root with the `services` array). Every renderer rule is identical to
+/// [`render`]: path interpolation, `.j2` content rendering + suffix strip, verbatim copies, and
+/// `template.conditions` — only the context source differs.
+///
+/// # Errors
+/// [`keel_core::KeelError::Render`] on any template/IO failure.
+pub fn render_with_context(
+    manifest: &Manifest,
+    blueprint_dir: &Path,
+    ctx: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Vec<RenderedFile>> {
+    renderer::render_with_context(manifest, blueprint_dir, ctx)
 }
 
 /// Derive a keyword-safe Python/Rust package name from a project name (`-` → `_`).

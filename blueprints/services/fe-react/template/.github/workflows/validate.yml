@@ -1,0 +1,30 @@
+# Validate — self-contained Node CI. Strict TypeScript acts as the lint/type
+# gate (tsconfig: strict + noUnusedLocals/Parameters). The check name
+# `validate` is part of the branch-protection contract.
+name: validate
+
+on:
+  push:
+    branches: [main, dev, staging]
+  pull_request:
+
+jobs:
+  validate:
+    name: Typecheck (tsc --noEmit, strict)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The first commit ships no package-lock.json (versions are pinned exactly
+      # in package.json). Commit the lockfile, then switch this to `npm ci`.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck

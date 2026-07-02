@@ -1,0 +1,25 @@
+# Test — self-contained .NET CI. Runs the xUnit suite (restores and builds the
+# referenced API project too). The check name `test` is part of the
+# branch-protection contract.
+name: test
+
+on:
+  push:
+    branches: [main, dev, staging]
+  pull_request:
+
+jobs:
+  test:
+    name: dotnet test (xUnit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Test
+        run: dotnet test tests/Api.Tests/Api.Tests.csproj -c Release

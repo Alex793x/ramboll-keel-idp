@@ -6,8 +6,14 @@
 //! ```text
 //! keel-cli init --project <name> --department <id> --users <id,id,...>
 //!               --service-kind <rest-api|worker> --description <s> --author <s>
+//!               [--layout <multi-repo|monolith>] [--services <type:lang,...>]
 //!               [--owner Alex793x] [--blueprints <dir>] [--local <dir>] [--dry-run]
 //! ```
+//!
+//! v3 (SPEC §13): `--services api:python,fe:react` selects the project's service components
+//! (`fe|api|wk|dp|inf` × language) and `--layout` picks one-repo-per-service (`multi-repo`,
+//! the default) or a single `monolith` repo. Without `--services` the legacy single-service
+//! path runs unchanged.
 //!
 //! Provider selection (precedence top-to-bottom):
 //! - `--dry-run`      → [`keel_github::FakeProvider`] (no writes, no network)
@@ -22,7 +28,10 @@ use std::path::PathBuf;
 use anyhow::{anyhow, Context};
 use clap::{Args, Parser, Subcommand};
 
-use keel_core::{InitOutcome, InitRequest, MockCatalog, ProgressEvent, RepoProvider, Selection};
+use keel_core::{
+    InitOutcome, InitRequest, MockCatalog, ProgressEvent, RepoLayout, RepoProvider, Selection,
+    ServiceSelection,
+};
 use keel_engine::Engine;
 
 /// Default GitHub owner for new repos.
@@ -84,6 +93,15 @@ pub struct InitArgs {
     #[arg(long, default_value = "python-service")]
     pub blueprint: String,
 
+    /// v3: repo layout — one repo per service, or a single monolith repo.
+    #[arg(long, default_value = "multi-repo", value_parser = ["multi-repo", "monolith"])]
+    pub layout: String,
+
+    /// v3: comma-separated service components as `type:lang` (e.g. `api:python,fe:react`).
+    /// Types: fe|api|wk|dp|inf. Empty ⇒ legacy single-service path.
+    #[arg(long, value_delimiter = ',')]
+    pub services: Vec<String>,
+
     /// GitHub owner new repos are created under.
     #[arg(long, default_value = DEFAULT_OWNER)]
     pub owner: String,
@@ -138,15 +156,40 @@ impl InitArgs {
 // Selection → InitRequest (delegates to the shared keel_core catalog)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Parse the `--layout` / `--services` flags into their typed v3 forms.
+///
+/// Kept separate from [`resolve_request`] so flag parsing is testable without a catalog.
+///
+/// # Errors
+/// A clear per-flag error: an invalid layout token (normally unreachable — clap restricts the
+/// values) or an invalid `type:lang` service entry (message lists the valid types).
+pub fn parse_v3_flags(args: &InitArgs) -> anyhow::Result<(RepoLayout, Vec<ServiceSelection>)> {
+    let layout: RepoLayout = args
+        .layout
+        .parse()
+        .map_err(|e: keel_core::KeelError| anyhow!("invalid --layout: {e}"))?;
+    let services = args
+        .services
+        .iter()
+        .map(|s| {
+            ServiceSelection::parse(s).map_err(|e| anyhow!("invalid --services entry {s:?}: {e}"))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok((layout, services))
+}
+
 /// Resolve `InitArgs` against the shared mocked catalog into a validated [`InitRequest`].
 ///
 /// The catalog and resolution logic live in [`keel_core::catalog`] (shared with the API), so this
 /// only maps CLI flags onto a [`Selection`] and delegates — the two entry points never drift.
+/// The v3 flags are parsed here (`--layout` via [`RepoLayout`], each `--services` entry via
+/// [`ServiceSelection::parse`]); without `--services` the legacy path is untouched.
 ///
 /// # Errors
 /// Surfaces a validation error if the department/user is unknown, no users are given, the service
-/// kind is invalid, or the request fails basic validation.
+/// kind is invalid, a v3 flag is malformed, or the request fails basic validation.
 pub fn resolve_request(catalog: &MockCatalog, args: &InitArgs) -> anyhow::Result<InitRequest> {
+    let (layout, services) = parse_v3_flags(args)?;
     let selection = Selection {
         project_name: args.project.clone(),
         blueprint: args.blueprint.clone(),
@@ -155,10 +198,8 @@ pub fn resolve_request(catalog: &MockCatalog, args: &InitArgs) -> anyhow::Result
         service_kind: args.service_kind.clone(),
         description: args.description.clone(),
         author: args.author.clone(),
-        // v3 flags (--layout / --services) are wired by the API/CLI fleet area (SPEC §13);
-        // the legacy path stays byte-identical meanwhile.
-        layout: keel_core::RepoLayout::default(),
-        services: vec![],
+        layout,
+        services,
     };
     catalog
         .resolve(&selection)
@@ -302,8 +343,124 @@ mod tests {
         assert_eq!(args.service_kind, "rest-api");
         assert_eq!(args.blueprint, "python-service"); // default
         assert_eq!(args.owner, DEFAULT_OWNER); // default
+        assert_eq!(args.layout, "multi-repo"); // default (v3)
+        assert!(args.services.is_empty()); // default (v3): legacy path
         assert!(!args.dry_run);
         assert!(args.local.is_none());
+    }
+
+    /// A minimal valid legacy argv, extendable with extra flags per test.
+    fn base_argv(extra: &[&str]) -> Vec<&'static str> {
+        let mut argv = vec![
+            "keel-cli",
+            "init",
+            "--project",
+            "invoicing-api",
+            "--department",
+            "energy",
+            "--users",
+            "u-alex",
+            "--service-kind",
+            "rest-api",
+            "--description",
+            "d",
+            "--author",
+            "a",
+        ];
+        for e in extra {
+            // Leak: test-only, keeps the helper signature simple for literal flags.
+            argv.push(Box::leak((*e).to_owned().into_boxed_str()));
+        }
+        argv
+    }
+
+    #[test]
+    fn parses_v3_layout_and_services_flags() {
+        let args = init_args(&base_argv(&[
+            "--layout",
+            "monolith",
+            "--services",
+            "api:python,fe:react",
+        ]));
+        assert_eq!(args.layout, "monolith");
+        assert_eq!(args.services, vec!["api:python", "fe:react"]);
+
+        let (layout, services) = parse_v3_flags(&args).expect("valid v3 flags");
+        assert_eq!(layout, RepoLayout::Monolith);
+        assert_eq!(
+            services,
+            vec![
+                ServiceSelection {
+                    service_type: keel_core::ServiceType::Api,
+                    language: "python".to_owned(),
+                },
+                ServiceSelection {
+                    service_type: keel_core::ServiceType::Fe,
+                    language: "react".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn layout_defaults_to_multi_repo_and_rejects_unknown_tokens() {
+        let args = init_args(&base_argv(&[]));
+        let (layout, services) = parse_v3_flags(&args).expect("defaults are valid");
+        assert_eq!(layout, RepoLayout::MultiRepo);
+        assert!(services.is_empty());
+
+        // clap's value_parser restricts --layout to the two tokens.
+        assert!(Cli::try_parse_from(base_argv(&["--layout", "solo"])).is_err());
+    }
+
+    #[test]
+    fn invalid_services_entry_errors_mentioning_the_valid_types() {
+        let args = init_args(&base_argv(&["--services", "gpu:python"]));
+        let err = parse_v3_flags(&args).expect_err("gpu is not a service type");
+        let msg = err.to_string();
+        assert!(msg.contains("gpu"), "names the bad entry: {msg}");
+        assert!(
+            msg.contains("fe|api|wk|dp|inf"),
+            "lists the valid types: {msg}"
+        );
+
+        // The same error surfaces through resolve_request (parsed at resolve time).
+        let catalog = MockCatalog::embedded();
+        let err = resolve_request(&catalog, &args).expect_err("propagates");
+        assert!(err.to_string().contains("fe|api|wk|dp|inf"));
+
+        // Malformed pair (no colon) also errors clearly.
+        let args = init_args(&base_argv(&["--services", "api"]));
+        let msg = parse_v3_flags(&args).expect_err("no colon").to_string();
+        assert!(msg.contains("type:lang"), "explains the shape: {msg}");
+    }
+
+    #[test]
+    fn resolve_request_maps_v3_flags_into_the_init_request() {
+        let catalog = MockCatalog::embedded();
+        let args = init_args(&base_argv(&[
+            "--layout",
+            "monolith",
+            "--services",
+            "api:python,fe:react",
+        ]));
+        let req = resolve_request(&catalog, &args).expect("valid v3 request");
+        assert_eq!(req.layout, RepoLayout::Monolith);
+        assert_eq!(req.services.len(), 2);
+        assert_eq!(req.services[0].blueprint_name(), "api-python");
+        assert_eq!(req.services[1].blueprint_name(), "fe-react");
+    }
+
+    #[test]
+    fn legacy_invocation_resolves_to_the_v2_request_shape() {
+        // No --layout / --services ⇒ default layout + empty services: the legacy path untouched.
+        let catalog = MockCatalog::embedded();
+        let args = init_args(&base_argv(&[]));
+        let req = resolve_request(&catalog, &args).expect("valid legacy request");
+        assert_eq!(req.layout, RepoLayout::default());
+        assert!(req.services.is_empty());
+        assert_eq!(req.project_name, "invoicing-api");
+        assert_eq!(req.users[0].github_login, "Alex793x");
     }
 
     #[test]

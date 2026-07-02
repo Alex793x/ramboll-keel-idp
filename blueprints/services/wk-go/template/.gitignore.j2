@@ -1,0 +1,23 @@
+# Binaries and build output
+/{{ project_name }}
+*.exe
+*.test
+*.out
+dist/
+
+# Fuzzing corpus discovered locally (seeds live in testdata/)
+testdata/fuzz/
+
+# Coverage
+coverage.*
+
+# Editor / OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local environment files
+.env
+.env.*
+!.env.example

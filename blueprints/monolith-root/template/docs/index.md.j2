@@ -1,0 +1,34 @@
+# {{ project_name }}
+
+> {{ description }}
+
+Owned by the **{{ department.name }}** department
+({% for u in users %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}).
+Generated from the Ramboll Developer Platform (Keel) `monolith-root`
+golden-path blueprint.
+
+## Services
+
+| Dir | Type | Language | Path |
+| --- | --- | --- | --- |
+{% for s in services %}| `{{ s.dir }}` | {{ s.label }} | {{ s.lang }} | `services/{{ s.dir }}/` |
+{% endfor %}
+The machine-readable index is `keel.services.json` at the repo root — the CI
+resolver's single source of truth.
+
+## Where to go next
+
+- **[How the smart CI works](ci.md)** — detection rules and worked examples.
+- **[Contributing](../CONTRIBUTING.md)** — branching, PRs, and the quality gates.
+- **`.claude/skills/monorepo-selective-ci/SKILL.md`** — the manifest contract
+  and how to add a service.
+
+## Standards, as code
+
+The non-negotiable engineering standards are embedded as AI agent skills under
+`.claude/skills/` so any coding agent adopts them automatically:
+
+- **monorepo-selective-ci** — the service manifest contract + selective CI.
+- **property-based-testing** — every pure function ships with Hypothesis properties.
+- **python-clean-code** — small, typed, lint/format/type-clean functions.
+- **git-ci-governance** — `main`/`dev`/`staging` and strict branch naming.

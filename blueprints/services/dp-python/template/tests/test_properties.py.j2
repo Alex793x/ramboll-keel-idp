@@ -1,0 +1,115 @@
+"""Property-based tests for {{ project_name }}'s pipeline module.
+
+Powered by `Hypothesis <https://hypothesis.readthedocs.io/>`_. Each test asserts
+a *property* — an invariant that must hold for every input — rather than a single
+example. Hypothesis generates many inputs (including nasty edge cases) and
+shrinks any failure to a minimal counterexample.
+
+This is the Ramboll golden-path standard: every pure public function ships with
+at least one property test.
+"""
+
+from __future__ import annotations
+
+import re
+
+from hypothesis import given
+from hypothesis import strategies as st
+
+from {{ package_name }}.pipeline import (
+    normalize_key,
+    normalize_record,
+    normalize_records,
+    normalize_value,
+    partition_records,
+)
+
+# Full-Unicode text — accents, whitespace, emoji, control characters — to
+# stress the normalisers hard.
+_TEXT = st.text()
+_RECORDS = st.lists(st.dictionaries(_TEXT, _TEXT, max_size=8), max_size=20)
+
+_KEY_CHARSET = re.compile(r"^[a-z0-9_]+$")
+
+
+# --------------------------------------------------------------------------- #
+# normalize_key / normalize_value
+# --------------------------------------------------------------------------- #
+@given(_TEXT)
+def test_normalize_key_is_idempotent(key: str) -> None:
+    """Normalising an already-normalised key changes nothing."""
+    once = normalize_key(key)
+    assert normalize_key(once) == once
+
+
+@given(_TEXT)
+def test_normalize_key_charset_invariant(key: str) -> None:
+    """Output only ever contains lowercase letters, digits and underscores."""
+    result = normalize_key(key)
+    assert result == "" or _KEY_CHARSET.match(result) is not None
+
+
+@given(_TEXT)
+def test_normalize_key_has_no_edge_or_doubled_underscores(key: str) -> None:
+    """Output never starts/ends with an underscore nor doubles one."""
+    result = normalize_key(key)
+    assert not result.startswith("_")
+    assert not result.endswith("_")
+    assert "__" not in result
+
+
+@given(_TEXT)
+def test_normalize_value_is_idempotent_and_clean(value: str) -> None:
+    """Value normalisation converges in one step and leaves no mess."""
+    once = normalize_value(value)
+    assert normalize_value(once) == once
+    assert once == once.strip()
+    assert "  " not in once
+
+
+# --------------------------------------------------------------------------- #
+# normalize_record / normalize_records
+# --------------------------------------------------------------------------- #
+@given(st.dictionaries(_TEXT, _TEXT, max_size=8))
+def test_normalize_record_is_idempotent(record: dict[str, str]) -> None:
+    """Round-trip: re-normalising a normalised record changes nothing."""
+    once = normalize_record(record)
+    assert normalize_record(once) == once
+
+
+@given(st.dictionaries(_TEXT, _TEXT, max_size=8))
+def test_normalize_record_key_and_value_invariants(record: dict[str, str]) -> None:
+    """Every surviving key is snake_case; every value is whitespace-clean."""
+    for key, value in normalize_record(record).items():
+        assert _KEY_CHARSET.match(key) is not None
+        assert value == normalize_value(value)
+
+
+@given(st.dictionaries(_TEXT, _TEXT, max_size=8))
+def test_normalize_record_never_grows(record: dict[str, str]) -> None:
+    """Normalisation only ever drops or merges keys — never invents them."""
+    assert len(normalize_record(record)) <= len(record)
+
+
+@given(_RECORDS)
+def test_normalize_records_preserves_count(records: list[dict[str, str]]) -> None:
+    """Exactly one normalised record per input record."""
+    assert len(normalize_records(records)) == len(records)
+
+
+@given(_RECORDS)
+def test_normalize_records_is_elementwise(records: list[dict[str, str]]) -> None:
+    """Oracle: the batch equals mapping normalize_record over the input."""
+    assert normalize_records(records) == [normalize_record(r) for r in records]
+
+
+# --------------------------------------------------------------------------- #
+# partition_records
+# --------------------------------------------------------------------------- #
+@given(st.lists(st.integers()), st.integers(min_value=1, max_value=10))
+def test_partition_records_is_lossless(items: list[int], modulus: int) -> None:
+    """Both lanes together hold every record exactly once, order preserved."""
+    matching, rest = partition_records(items, lambda n: n % modulus == 0)
+    assert matching == [n for n in items if n % modulus == 0]
+    assert rest == [n for n in items if n % modulus != 0]
+    assert len(matching) + len(rest) == len(items)

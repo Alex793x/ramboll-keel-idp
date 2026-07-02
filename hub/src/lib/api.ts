@@ -9,6 +9,8 @@
 
 import type {
   Blueprint,
+  CatalogServiceType,
+  Contributor,
   Department,
   InitOutcome,
   InitializePayload,
@@ -82,6 +84,16 @@ export class KeelApi {
     return this.request<User[]>(
       `/api/departments/${encodeURIComponent(departmentId)}/users`,
     );
+  }
+
+  /** `GET /api/users` — the global contributors (v3, SPEC §13). */
+  getUsers(): Promise<Contributor[]> {
+    return this.request<Contributor[]>("/api/users");
+  }
+
+  /** `GET /api/service-catalog` — the 5 service types with per-language availability. */
+  getServiceCatalog(): Promise<CatalogServiceType[]> {
+    return this.request<CatalogServiceType[]>("/api/service-catalog");
   }
 
   /** `GET /api/blueprints`. */

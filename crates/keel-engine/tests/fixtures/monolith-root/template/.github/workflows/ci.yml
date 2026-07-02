@@ -1,0 +1,8 @@
+# Root-owned CI (verbatim: ${{ }} must survive). Stands in for the real smart ci.yml.
+name: ci
+on: [push, pull_request]
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "gate on ${{ github.sha }}"

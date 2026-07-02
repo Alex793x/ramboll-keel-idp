@@ -1,0 +1,32 @@
+# Terraform working directory (providers, modules)
+.terraform/
+
+# State is never committed — it lives in the remote backend
+*.tfstate
+*.tfstate.*
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Variable files may carry secrets; keep only the example
+*.tfvars
+*.tfvars.json
+!example.tfvars
+
+# Plan output files
+*.tfplan
+
+# Override files are for local experimentation only
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Editor / OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# NOTE: commit .terraform.lock.hcl once it exists — provider pins are reviewed.

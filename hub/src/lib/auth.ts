@@ -70,7 +70,9 @@ export function deriveName(email: string): string {
 
 function storage(): Storage | null {
   try {
-    return typeof localStorage !== "undefined" ? localStorage : null;
+    // Access via `window` explicitly: Node 26 defines a global `localStorage` that is
+    // non-functional without `--localstorage-file` and shadows jsdom's working one in tests.
+    return typeof window !== "undefined" ? window.localStorage : null;
   } catch {
     return null;
   }

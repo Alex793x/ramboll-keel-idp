@@ -1,0 +1,7 @@
+# {{ project_name }}
+
+{{ description }}
+
+Monolith ({{ layout }}) with {{ services | length }} service(s):
+{% for s in services %}- `services/{{ s.dir }}` — {{ s.label }} ({{ s.lang }})
+{% endfor %}

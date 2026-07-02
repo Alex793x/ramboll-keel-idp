@@ -1,0 +1,62 @@
+apiVersion: keel/v2
+kind: Blueprint
+
+metadata:
+  name: monolith-root
+  title: Monolith Root
+  description: >-
+    Root scaffold for a Keel monolith — one repository, many services, and a
+    change-aware CI that only rebuilds the services a change actually affects.
+  version: "0.1.0"
+  owner: platform-engineering
+  tags: [monolith, ci, golden-path]
+
+# Form parameters only. Ownership (department + selected users) is NOT collected
+# here — it comes from the Hub's department/users selection step and is injected
+# into the render context as `department` and `users` (see SPEC §3.2). The
+# engine additionally injects `layout` and the `services` array
+# ({tag, dir, lang, label, repo_name}) for the root render (SPEC §12), and it
+# serializes `keel.services.json` itself — the manifest is never a template.
+parameters:
+  - id: project_name
+    title: Project name
+    type: string
+    required: true
+    pattern: "^[a-z][a-z0-9-]{2,40}$"
+    help: >-
+      Lowercase repository name. Start with a letter; use letters, digits and
+      hyphens only (3–41 chars). Example: invoicing-platform.
+  - id: description
+    title: Description
+    type: string
+    required: true
+    help: One sentence describing what this monolith does.
+  - id: author
+    title: Author
+    type: string
+    required: true
+    help: Name (or name <email>) recorded as the project author.
+
+template:
+  root: template
+  rename: ".j2"
+
+repository:
+  visibility: internal
+  default_branch: main
+  branches: [main, dev, staging]
+  protect:
+    - branch: main
+      require_pull_request: true
+      required_reviews: 1
+      require_codeowners: true
+      required_checks: [gate]
+
+postActions:
+  - create_repository
+  - commit_template
+  - setup_branches
+  - apply_protection
+  - enable_ci
+  - publish_docs
+  - register_in_catalog

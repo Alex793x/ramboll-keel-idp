@@ -4,7 +4,9 @@ import { LiveBlueprint, PERKS } from './LiveBlueprint';
 
 describe('LiveBlueprint', () => {
   it('renders the empty draft with fallbacks', () => {
-    render(<LiveBlueprint name="" gba={null} contributors={[]} services={[]} />);
+    render(
+      <LiveBlueprint name="" gba={null} contributors={[]} services={[]} layout="multi-repo" />,
+    );
     expect(screen.getByText('LIVE BLUEPRINT')).toBeInTheDocument();
     expect(screen.getByText('PROJECT')).toBeInTheDocument();
     expect(screen.getByText('Untitled project')).toBeInTheDocument();
@@ -14,7 +16,9 @@ describe('LiveBlueprint', () => {
   });
 
   it('renders the CI/CD node copy verbatim', () => {
-    render(<LiveBlueprint name="" gba={null} contributors={[]} services={[]} />);
+    render(
+      <LiveBlueprint name="" gba={null} contributors={[]} services={[]} layout="multi-repo" />,
+    );
     expect(screen.getByText('CI / CD · GITHUB ACTIONS')).toBeInTheDocument();
     expect(
       screen.getByText('Build · test · validate pipelines, wired per repo'),
@@ -22,7 +26,9 @@ describe('LiveBlueprint', () => {
   });
 
   it('renders all five WHAT YOU GET perks verbatim', () => {
-    render(<LiveBlueprint name="" gba={null} contributors={[]} services={[]} />);
+    render(
+      <LiveBlueprint name="" gba={null} contributors={[]} services={[]} layout="multi-repo" />,
+    );
     expect(screen.getByText('WHAT YOU GET')).toBeInTheDocument();
     expect(PERKS).toEqual([
       'One repo per service, from approved Ramboll templates',
@@ -47,6 +53,7 @@ describe('LiveBlueprint', () => {
           { type: 'api', lang: '.NET' },
           { type: 'api', lang: 'Python' },
         ]}
+        layout="multi-repo"
       />,
     );
     expect(screen.getByText('Grid Twin')).toBeInTheDocument();
@@ -63,5 +70,42 @@ describe('LiveBlueprint', () => {
     expect(
       screen.queryByText('Add service components to see them here'),
     ).not.toBeInTheDocument();
+  });
+
+  it('multi-repo mode never shows the single monolith repo line', () => {
+    render(
+      <LiveBlueprint
+        name="Grid Twin"
+        gba="Energy"
+        contributors={[]}
+        services={[{ type: 'fe', lang: 'React' }]}
+        layout="multi-repo"
+      />,
+    );
+    expect(screen.queryByText('ramboll/grid-twin')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^services\//)).not.toBeInTheDocument();
+  });
+
+  it('monolith mode shows ramboll/{slug} in the header and services/{dir} per node', () => {
+    render(
+      <LiveBlueprint
+        name="Grid Twin"
+        gba="Energy"
+        contributors={[]}
+        services={[
+          { type: 'fe', lang: 'React' },
+          { type: 'api', lang: '.NET' },
+          { type: 'api', lang: 'Python' },
+        ]}
+        layout="monolith"
+      />,
+    );
+    // Single repo node in the PROJECT header…
+    expect(screen.getByText('ramboll/grid-twin')).toBeInTheDocument();
+    // …and in-repo service directories on the nodes (ordinal rule, no slug prefix).
+    expect(screen.getByText('services/fe')).toBeInTheDocument();
+    expect(screen.getByText('services/api-1')).toBeInTheDocument();
+    expect(screen.getByText('services/api-2')).toBeInTheDocument();
+    expect(screen.queryByText('grid-twin-fe')).not.toBeInTheDocument();
   });
 });

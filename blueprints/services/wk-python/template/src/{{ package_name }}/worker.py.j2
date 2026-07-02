@@ -1,0 +1,95 @@
+"""Pure worker-loop logic for {{ project_name }}.
+
+Everything in this module is *pure* (same input → same output, no I/O, no
+clock, no mutation): the retry/backoff plan and the batching of work items.
+That purity is what makes the behaviour expressible as **properties** — see
+``tests/test_properties.py``. The impure loop (queue polling, sleeping,
+logging) lives in ``__main__.py`` and stays as thin as possible.
+
+Owned by the {{ department.name }} department.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import TypeVar
+
+__all__ = ["next_delay", "retry_schedule", "split_batches"]
+
+T = TypeVar("T")
+
+_BASE_DELAY_SECONDS = 0.5
+_MAX_DELAY_SECONDS = 60.0
+# 0.5 * 2**7 = 64 > 60, so every exponent beyond this point is capped anyway;
+# bounding it keeps ``2.0 ** exponent`` finite for arbitrarily large attempts.
+_MAX_EXPONENT = 8
+
+
+def next_delay(attempt: int) -> float:
+    """Exponential-backoff delay (seconds) to wait before retry ``attempt``.
+
+    Attempts are 1-based: the first retry waits ``0.5`` seconds, then the delay
+    doubles per attempt up to a cap of ``60`` seconds.
+
+    Properties this guarantees (see the property tests):
+
+    * **Positive and capped** — the result is always in ``(0, 60]``.
+    * **Monotone** — ``next_delay(n) <= next_delay(n + 1)``.
+    * **Deterministic** — no jitter, no clock, no randomness.
+
+    Args:
+        attempt: 1-based retry attempt number.
+
+    Returns:
+        The delay in seconds before the given attempt.
+
+    Raises:
+        ValueError: If ``attempt`` is smaller than 1.
+    """
+    if attempt < 1:
+        raise ValueError(f"attempt must be >= 1, got {attempt}")
+    exponent = min(attempt - 1, _MAX_EXPONENT)
+    return min(_MAX_DELAY_SECONDS, _BASE_DELAY_SECONDS * 2.0**exponent)
+
+
+def retry_schedule(attempts: int) -> list[float]:
+    """Delays for retry attempts ``1..attempts``.
+
+    Properties this guarantees (see the property tests):
+
+    * **Length** — the result has exactly ``max(attempts, 0)`` entries.
+    * **Non-decreasing** — the schedule never shrinks between attempts.
+
+    Args:
+        attempts: How many retry attempts to plan for.
+
+    Returns:
+        One delay (seconds) per attempt; empty when ``attempts <= 0``.
+    """
+    if attempts <= 0:
+        return []
+    return [next_delay(attempt) for attempt in range(1, attempts + 1)]
+
+
+def split_batches(items: Sequence[T], size: int) -> list[list[T]]:
+    """Split ``items`` into consecutive batches of at most ``size`` elements.
+
+    Properties this guarantees (see the property tests):
+
+    * **Round-trip** — concatenating the batches reproduces ``items`` exactly.
+    * **Bounded** — every batch has between 1 and ``size`` elements.
+    * **Count** — there are exactly ``ceil(len(items) / size)`` batches.
+
+    Args:
+        items: The work items to batch, in order.
+        size: Maximum number of items per batch.
+
+    Returns:
+        The batches, preserving the original item order.
+
+    Raises:
+        ValueError: If ``size`` is smaller than 1.
+    """
+    if size < 1:
+        raise ValueError(f"size must be >= 1, got {size}")
+    return [list(items[start : start + size]) for start in range(0, len(items), size)]

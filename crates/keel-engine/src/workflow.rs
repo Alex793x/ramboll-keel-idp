@@ -1,29 +1,36 @@
-//! The 8-step idempotent initialization workflow.
+//! The 8-step idempotent initialization workflow (v2 legacy + v3 multi-repo/monolith).
 //!
-//! Each step emits exactly one [`ProgressEvent`] whose `key` is the matching entry of
+//! Each path emits exactly one [`ProgressEvent`] per step whose `key` is the matching entry of
 //! [`keel_core::WORKFLOW_STEPS`] (`signin … register`, steps `1..=8`), in canonical order,
-//! regardless of inputs or whether the repo already existed. Idempotency is achieved by:
+//! regardless of inputs or whether the repo(s) already existed.
 //!
-//! - **`create_repo` / `commit`** — if [`RepoProvider::repo_exists`] reports the repo is already
-//!   present, both steps emit `Skipped` and the existing coordinates are reused (the provider's own
-//!   `create_repo` is also idempotent, so this is belt-and-braces).
-//! - **`register`** — the catalog upsert is keyed on a stable `catalog_id`, so a second run replaces
-//!   the existing row rather than appending a duplicate.
+//! Dispatch (SPEC §12):
+//! - `req.services.is_empty()` ⇒ [`legacy`] — the frozen v2 single-service path, byte-identical.
+//! - otherwise `req.layout` picks [`multi`] (one repo per service) or [`mono`] (one composed
+//!   monolith repo with `services/{dir}/` trees + `keel.services.json`).
+//!
+//! This parent module owns the pieces every path shares: the [`EventLog`], step titles, branch
+//! fallbacks, service-blueprint resolution, per-service context building, and the committed
+//! `branch-protection.json` governance record.
 
-use std::path::Path;
+mod legacy;
+mod mono;
+mod multi;
 
-use keel_blueprint::Manifest;
+use std::path::{Path, PathBuf};
+
+use keel_blueprint::{Manifest, ServiceCtx};
 use keel_core::{
-    InitOutcome, InitRequest, ProgressEvent, ProtectionPolicy, RepoCoordinates, RepoProvider,
-    RepoSpec, Result, Status, WORKFLOW_STEPS,
+    service_dirs, service_repo_names, InitOutcome, InitRequest, KeelError, ProgressEvent,
+    ProtectionPolicy, RepoCoordinates, RepoLayout, RepoProvider, Result, Status, WORKFLOW_STEPS,
 };
-
-use crate::catalog;
 
 /// Default branch model when the manifest declares none.
 const DEFAULT_BRANCHES: [&str; 3] = ["main", "dev", "staging"];
 /// Default branch name when the manifest declares none.
 const DEFAULT_BRANCH: &str = "main";
+/// Sub-directory of the blueprints dir holding the per-service blueprints (SPEC §12).
+const SERVICES_SUBDIR: &str = "services";
 
 /// Human-readable step titles (index = step - 1), shown in the Hub progress view.
 const STEP_TITLES: [&str; 8] = [
@@ -36,6 +43,79 @@ const STEP_TITLES: [&str; 8] = [
     "Seed CI",
     "Register project",
 ];
+
+/// Run the 8 ordered idempotent steps and return the outcome.
+///
+/// `owner` is the GitHub account/org new repos are created under; `blueprints_dir` is the search
+/// path for blueprints; `catalog_path` is the JSON catalog the `register` step upserts.
+///
+/// # Errors
+/// Propagates validation, render, and provider errors as [`keel_core::KeelError`].
+pub(crate) fn run(
+    req: &InitRequest,
+    owner: &str,
+    blueprints_dir: &Path,
+    catalog_path: &Path,
+    provider: &dyn RepoProvider,
+    on_event: &mut dyn FnMut(&ProgressEvent),
+) -> Result<InitOutcome> {
+    if req.services.is_empty() {
+        // Legacy single-service path: exactly v2 behavior.
+        return legacy::run(req, owner, blueprints_dir, catalog_path, provider, on_event);
+    }
+    match req.layout {
+        RepoLayout::MultiRepo => {
+            multi::run(req, owner, blueprints_dir, catalog_path, provider, on_event)
+        }
+        RepoLayout::Monolith => {
+            mono::run(req, owner, blueprints_dir, catalog_path, provider, on_event)
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Event log
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Collects every emitted event (so the returned [`InitOutcome`] carries the full audit trail)
+/// while forwarding each one live to the caller's `on_event` callback.
+struct EventLog<'a> {
+    events: Vec<ProgressEvent>,
+    on_event: &'a mut dyn FnMut(&ProgressEvent),
+}
+
+impl<'a> EventLog<'a> {
+    fn new(on_event: &'a mut dyn FnMut(&ProgressEvent)) -> Self {
+        Self {
+            events: Vec::with_capacity(WORKFLOW_STEPS.len()),
+            on_event,
+        }
+    }
+
+    /// Record the canonical event for `step` (1-based) and fire the live callback.
+    fn record(&mut self, step: u8, status: Status, detail: impl Into<String>) {
+        let idx = usize::from(step.saturating_sub(1));
+        self.events.push(ProgressEvent::new(
+            step,
+            WORKFLOW_STEPS[idx],
+            STEP_TITLES[idx],
+            status,
+            detail,
+        ));
+        if let Some(event) = self.events.last() {
+            (self.on_event)(event);
+        }
+    }
+
+    /// The complete ordered audit trail.
+    fn into_events(self) -> Vec<ProgressEvent> {
+        self.events
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Manifest-derived branch model (shared by every path)
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// The default branch to use for a repo, honoring the manifest then falling back to `main`.
 fn default_branch(manifest: &Manifest) -> String {
@@ -53,166 +133,6 @@ fn branch_set(manifest: &Manifest) -> Vec<String> {
         DEFAULT_BRANCHES.iter().map(|s| (*s).to_owned()).collect()
     } else {
         manifest.repository.branches.clone()
-    }
-}
-
-/// Run the 8 ordered idempotent steps and return the outcome.
-///
-/// `owner` is the GitHub account/org new repos are created under; `blueprints_dir` is the search
-/// path for the requested blueprint; `catalog_path` is the JSON catalog the `register` step upserts.
-///
-/// # Errors
-/// Propagates validation, render, and provider errors as [`keel_core::KeelError`].
-pub(crate) fn run(
-    req: &InitRequest,
-    owner: &str,
-    blueprints_dir: &Path,
-    catalog_path: &Path,
-    provider: &dyn RepoProvider,
-    on_event: &mut dyn FnMut(&ProgressEvent),
-) -> Result<InitOutcome> {
-    // We collect every emitted event so the returned InitOutcome carries the full audit trail,
-    // while ALSO forwarding each event live to the caller's `on_event` callback. `record` pushes
-    // onto `events` and fires the callback for the just-pushed event, so it never needs to borrow
-    // `events` while we also read it elsewhere.
-    let mut events: Vec<ProgressEvent> = Vec::with_capacity(WORKFLOW_STEPS.len());
-    macro_rules! record {
-        ($step:expr, $status:expr, $detail:expr) => {{
-            let idx = ($step - 1) as usize;
-            events.push(ProgressEvent::new(
-                $step,
-                WORKFLOW_STEPS[idx],
-                STEP_TITLES[idx],
-                $status,
-                $detail,
-            ));
-            on_event(events.last().expect("just pushed"));
-        }};
-    }
-
-    // ── Step 1: signin ───────────────────────────────────────────────────────
-    // The API/CLI authenticated the caller before we were invoked; nothing to do.
-    record!(1, Status::Done, "authenticated by caller".to_owned());
-
-    // ── Step 2: form ─────────────────────────────────────────────────────────
-    // Load the manifest and validate the request against it. A cheap structural pre-check first
-    // gives a clearer error before we touch the filesystem.
-    req.validate_basic()?;
-    let blueprint_dir = blueprints_dir.join(&req.blueprint);
-    let manifest = keel_blueprint::load_manifest(&blueprint_dir)?;
-    keel_blueprint::validate_request(&manifest, req)?;
-    record!(
-        2,
-        Status::Done,
-        format!("validated against {}", req.blueprint)
-    );
-
-    // ── Step 3: render ───────────────────────────────────────────────────────
-    let mut files = keel_blueprint::render(&manifest, &blueprint_dir, req)?;
-    // Durable governance record: always commit the intended branch-protection policy into the repo.
-    // Hosts cannot always *enforce* protection (e.g. personal accounts, where the `gh api` call is
-    // skipped), so the committed `branch-protection.json` is the authoritative record of intent.
-    files.push(branch_protection_file(&manifest)?);
-    record!(3, Status::Done, format!("rendered {} file(s)", files.len()));
-
-    // ── Step 4 + 5: create_repo + commit ─────────────────────────────────────
-    let name = &req.project_name;
-    let already_exists = provider.repo_exists(owner, name)?;
-    let branch = default_branch(&manifest);
-
-    let mut repo: RepoCoordinates = if already_exists {
-        // Idempotent path: do not create a second repo, do not push a second commit.
-        record!(4, Status::Skipped, format!("{owner}/{name} already exists"));
-        record!(
-            5,
-            Status::Skipped,
-            "initial commit already present".to_owned()
-        );
-        // Reuse coordinates. The provider's create_repo is idempotent and returns the existing
-        // coordinates, so this is a safe, side-effect-free way to fetch them.
-        provider.create_repo(&repo_spec(req, owner, branch.clone(), files))?
-    } else {
-        let coords = provider.create_repo(&repo_spec(req, owner, branch.clone(), files))?;
-        record!(4, Status::Done, format!("created {}", coords.html_url));
-        record!(
-            5,
-            Status::Done,
-            format!("one clean initial commit on {branch}")
-        );
-        coords
-    };
-
-    // ── Step 6: branches ─────────────────────────────────────────────────────
-    let branches = branch_set(&manifest);
-    provider.ensure_branches(&repo, &branches)?;
-    // Reflect the ensured branches in the returned coordinates (union, default first).
-    for b in &branches {
-        if !repo.branches.contains(b) {
-            repo.branches.push(b.clone());
-        }
-    }
-    // Apply protection policies best-effort (a failure here must not abort initialization).
-    let mut protected = 0usize;
-    for policy in &manifest.repository.protect {
-        if apply_protection(provider, &repo, policy).is_ok() {
-            protected += 1;
-        }
-    }
-    record!(
-        6,
-        Status::Done,
-        format!(
-            "{} branch(es), {protected} protection policy(ies)",
-            repo.branches.len()
-        )
-    );
-
-    // ── Step 7: seed_ci ──────────────────────────────────────────────────────
-    // No-op: CI workflows + docs ship inside the rendered template tree.
-    record!(
-        7,
-        Status::Done,
-        "CI + docs included in rendered tree".to_owned()
-    );
-
-    // ── Step 8: register ─────────────────────────────────────────────────────
-    let catalog_id = catalog::catalog_id(owner, name);
-    record!(
-        8,
-        Status::Done,
-        format!("upserted catalog row {catalog_id}")
-    );
-
-    // Build the outcome carrying the COMPLETE event set (all 8, incl. register) and persist exactly
-    // that, so `list_projects` round-trips what `initialize` returns.
-    let outcome = InitOutcome {
-        project: name.clone(),
-        repos: vec![repo.clone()],
-        repo,
-        docs_path: format!("{name}/docs"),
-        blueprint_version: manifest.version.clone(),
-        catalog_id,
-        events,
-    };
-    catalog::upsert(catalog_path, &outcome)?;
-    Ok(outcome)
-}
-
-/// Build the [`RepoSpec`] for the create/commit steps.
-fn repo_spec(
-    req: &InitRequest,
-    owner: &str,
-    default_branch: String,
-    files: Vec<keel_core::RenderedFile>,
-) -> RepoSpec {
-    RepoSpec {
-        owner: owner.to_owned(),
-        name: req.project_name.clone(),
-        description: req.description.clone(),
-        private: true,
-        default_branch,
-        files,
-        commit_message: "chore: scaffold from Keel python-service blueprint".to_owned(),
     }
 }
 
@@ -235,4 +155,107 @@ fn apply_protection(
     policy: &ProtectionPolicy,
 ) -> Result<()> {
     provider.write_protection(repo, policy)
+}
+
+/// Ensure a repo's branch set + protection policies per `manifest`, reflecting the ensured
+/// branches back into `repo.branches` (union, default first). Returns the number of policies
+/// successfully applied (protection is best-effort and never aborts initialization).
+fn ensure_branches_and_protection(
+    provider: &dyn RepoProvider,
+    repo: &mut RepoCoordinates,
+    manifest: &Manifest,
+) -> Result<usize> {
+    let branches = branch_set(manifest);
+    provider.ensure_branches(repo, &branches)?;
+    for b in &branches {
+        if !repo.branches.contains(b) {
+            repo.branches.push(b.clone());
+        }
+    }
+    let mut protected = 0usize;
+    for policy in &manifest.repository.protect {
+        if apply_protection(provider, repo, policy).is_ok() {
+            protected += 1;
+        }
+    }
+    Ok(protected)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v3 service-blueprint resolution + per-service contexts
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One resolved service blueprint: its directory name, on-disk location, and parsed manifest.
+struct ServicePlan {
+    /// Blueprint dir name (`{tag}-{lang}`), used in commit messages and diagnostics.
+    blueprint_name: String,
+    /// Absolute blueprint directory (`<blueprints_dir>/services/{tag}-{lang}`).
+    dir: PathBuf,
+    manifest: Manifest,
+}
+
+/// Resolve every selection to `blueprints/services/{tag}-{lang}` and load its manifest.
+///
+/// # Errors
+/// [`KeelError::Validation`] naming the missing combo and listing every available one (by scanning
+/// the services dir), so the caller can immediately see what IS supported.
+fn resolve_services(req: &InitRequest, blueprints_dir: &Path) -> Result<Vec<ServicePlan>> {
+    let services_root = blueprints_dir.join(SERVICES_SUBDIR);
+    let mut plans = Vec::with_capacity(req.services.len());
+    for sel in &req.services {
+        let blueprint_name = sel.blueprint_name();
+        let dir = services_root.join(&blueprint_name);
+        if !dir.is_dir() {
+            return Err(KeelError::Validation(format!(
+                "no blueprint for service {}:{} (missing {}); available: {}",
+                sel.service_type.tag(),
+                sel.language,
+                dir.display(),
+                available_service_blueprints(&services_root),
+            )));
+        }
+        let manifest = keel_blueprint::load_manifest(&dir)?;
+        plans.push(ServicePlan {
+            blueprint_name,
+            dir,
+            manifest,
+        });
+    }
+    Ok(plans)
+}
+
+/// Sorted, comma-joined names of every service blueprint present on disk (`"(none)"` if empty).
+fn available_service_blueprints(services_root: &Path) -> String {
+    let Ok(entries) = std::fs::read_dir(services_root) else {
+        return "(none)".to_owned();
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(std::result::Result::ok)
+        .filter(|e| e.path().join("blueprint.yaml").is_file())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    if names.is_empty() {
+        "(none)".to_owned()
+    } else {
+        names.join(", ")
+    }
+}
+
+/// Build the per-service template contexts, index-aligned with `req.services` (repo names and
+/// monolith dirs both follow keel-core's shared ordinal rule).
+fn build_service_ctxs(req: &InitRequest) -> Vec<ServiceCtx> {
+    let names = service_repo_names(&req.project_name, &req.services);
+    let dirs = service_dirs(&req.services);
+    req.services
+        .iter()
+        .zip(names.into_iter().zip(dirs))
+        .map(|(sel, (repo_name, dir))| ServiceCtx {
+            tag: sel.service_type.tag().to_owned(),
+            dir,
+            lang: sel.language.clone(),
+            label: sel.service_type.label().to_owned(),
+            repo_name,
+        })
+        .collect()
 }

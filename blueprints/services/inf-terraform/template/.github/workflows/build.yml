@@ -1,0 +1,24 @@
+# Build — self-contained Terraform CI: provider resolution without a state
+# backend (the closest Terraform analogue of a build). The platform's reusable
+# workflows are Python-focused; Terraform uses self-contained lang CI
+# (SPEC §14). The check name `build` is part of the branch-protection contract.
+name: build
+
+on:
+  push:
+    branches: [main, dev, staging]
+  pull_request:
+
+jobs:
+  build:
+    name: terraform init (providers, no backend)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Init (no backend)
+        run: terraform init -backend=false -input=false

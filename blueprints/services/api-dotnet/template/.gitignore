@@ -1,0 +1,25 @@
+# Build output
+bin/
+obj/
+artifacts/
+
+# Test results
+TestResults/
+*.trx
+
+# User-specific files
+*.user
+*.suo
+.vs/
+
+# Editor / OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local environment files
+.env
+.env.*
+!.env.example
+appsettings.*.local.json

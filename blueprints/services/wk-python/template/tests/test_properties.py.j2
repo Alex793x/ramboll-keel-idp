@@ -1,0 +1,81 @@
+"""Property-based tests for {{ project_name }}'s worker module.
+
+Powered by `Hypothesis <https://hypothesis.readthedocs.io/>`_. Each test asserts
+a *property* — an invariant that must hold for every input — rather than a single
+example. Hypothesis generates many inputs (including nasty edge cases) and
+shrinks any failure to a minimal counterexample.
+
+This is the Ramboll golden-path standard: every pure public function ships with
+at least one property test.
+"""
+
+from __future__ import annotations
+
+from hypothesis import given
+from hypothesis import strategies as st
+
+from {{ package_name }}.worker import next_delay, retry_schedule, split_batches
+
+_ATTEMPTS = st.integers(min_value=1, max_value=100_000)
+_ITEMS = st.lists(st.integers())
+_SIZES = st.integers(min_value=1, max_value=50)
+
+
+# --------------------------------------------------------------------------- #
+# next_delay
+# --------------------------------------------------------------------------- #
+@given(_ATTEMPTS)
+def test_next_delay_is_positive_and_capped(attempt: int) -> None:
+    """Every delay is strictly positive and never exceeds the 60s cap."""
+    assert 0.0 < next_delay(attempt) <= 60.0
+
+
+@given(_ATTEMPTS)
+def test_next_delay_is_monotone(attempt: int) -> None:
+    """Waiting never gets shorter as attempts increase."""
+    assert next_delay(attempt) <= next_delay(attempt + 1)
+
+
+@given(_ATTEMPTS)
+def test_next_delay_is_deterministic(attempt: int) -> None:
+    """Same attempt, same delay — no jitter, no hidden state."""
+    assert next_delay(attempt) == next_delay(attempt)
+
+
+# --------------------------------------------------------------------------- #
+# retry_schedule
+# --------------------------------------------------------------------------- #
+@given(st.integers(min_value=-10, max_value=500))
+def test_retry_schedule_has_one_delay_per_attempt(attempts: int) -> None:
+    """The schedule length equals the attempt count (clamped at zero)."""
+    assert len(retry_schedule(attempts)) == max(attempts, 0)
+
+
+@given(st.integers(min_value=0, max_value=500))
+def test_retry_schedule_is_non_decreasing(attempts: int) -> None:
+    """The schedule never shrinks between consecutive attempts."""
+    schedule = retry_schedule(attempts)
+    assert schedule == sorted(schedule)
+
+
+# --------------------------------------------------------------------------- #
+# split_batches
+# --------------------------------------------------------------------------- #
+@given(_ITEMS, _SIZES)
+def test_split_batches_round_trips(items: list[int], size: int) -> None:
+    """Concatenating the batches reproduces the input exactly."""
+    batches = split_batches(items, size)
+    assert [item for batch in batches for item in batch] == items
+
+
+@given(_ITEMS, _SIZES)
+def test_split_batches_bounds_every_batch(items: list[int], size: int) -> None:
+    """No batch is empty and none exceeds the requested size."""
+    assert all(1 <= len(batch) <= size for batch in split_batches(items, size))
+
+
+@given(_ITEMS, _SIZES)
+def test_split_batches_count_is_exact(items: list[int], size: int) -> None:
+    """There are exactly ceil(len(items) / size) batches."""
+    expected = (len(items) + size - 1) // size
+    assert len(split_batches(items, size)) == expected

@@ -5,14 +5,21 @@
  *
  * Ported EXACTLY from `Ramboll Developer Hub.dc.html` lines 491–536 (markup)
  * and 1197–1212 (blueprint values + perks).
+ *
+ * v3 layout awareness (SPEC §16): in monolith mode the PROJECT node carries
+ * the single `ramboll/{slug}` repo line and each service node's repo line
+ * becomes its in-repo `services/{dir}` path; multi-repo is pixel-identical
+ * to the original design.
  */
 import { ICONS, PathIcon } from '../../design/icons';
 import { color, font } from '../../design/tokens';
 import {
   blueprintName,
-  repoName,
+  blueprintRepoLine,
+  monolithRepo,
   slugOf,
   typeOf,
+  type RepoLayout,
   type Service,
 } from '../../lib/wizard-model';
 
@@ -30,13 +37,19 @@ export interface LiveBlueprintProps {
   gba: string | null;
   contributors: readonly string[];
   services: readonly Service[];
+  layout: RepoLayout;
 }
 
-export function LiveBlueprint({ name, gba, contributors, services }: LiveBlueprintProps) {
+export function LiveBlueprint({ name, gba, contributors, services, layout }: LiveBlueprintProps) {
   const slug = slugOf(name);
   const nodes = services.map((sv, i) => {
     const t = typeOf(sv.type);
-    return { tag: t.tag, label: t.label, repo: repoName(slug, services, i), lang: sv.lang };
+    return {
+      tag: t.tag,
+      label: t.label,
+      repo: blueprintRepoLine(layout, slug, services, i),
+      lang: sv.lang,
+    };
   });
 
   return (
@@ -103,6 +116,11 @@ export function LiveBlueprint({ name, gba, contributors, services }: LiveBluepri
         <div style={{ fontSize: 15, fontWeight: 800, color: color.white }}>
           {blueprintName(name)}
         </div>
+        {layout === 'monolith' && (
+          <div style={{ fontFamily: font.mono, fontSize: 10, color: color.dim, marginTop: 2 }}>
+            {monolithRepo(slug)}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
           <span
             style={{

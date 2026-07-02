@@ -132,6 +132,31 @@ provisioning → created, all matching the design.
 
 ---
 
+## v3 — multi-service projects, monolith layout & smart selective CI
+
+**Status: ✅ complete** — 6 fleets (SPEC §12–§15), all MemTrace episodes class A. Per-area detail in
+`tracker/{engine,apicli,monoci,blueprints,hub}-v3.md`.
+
+| Area | Delivered | Verified |
+| --- | --- | --- |
+| Engine (Rust) | `workflow/{legacy,multi,mono}.rs`, `derive_context_v3`, `render_with_context` | 19 workspace suites; legacy tests unmodified; 3 new proptests |
+| API + CLI | `/api/users`, `/api/service-catalog`, additive v3 `initialize` body; `--layout` `--services` | legacy v2 bodies byte-identical (equality-tested) |
+| Service blueprints | 8 under `blueprints/services/`: api-{python,node,dotnet}, wk-{python,go}, dp-python, fe-react, inf-terraform | 5 local-green; dotnet/go/terraform authored + CI-pending (no local toolchain) |
+| Monolith root | `blueprints/monolith-root/` + `detect_services.py` + detect→gate→matrix `ci.yml` + `monorepo-selective-ci` skill | 13-property hypothesis suite ships in every monolith and runs green |
+| Hub wizard | wired to the real engine: live contributors/catalog, layout toggle, real repos + URLs | 183/183 Vitest, tsc clean |
+| **E2E (real gh)** | multi-repo → `Alex793x/keel-v3m-15ef-{api,fe}`; monolith → `Alex793x/keel-v3s-15ef` | branches, CODEOWNERS, `keel.services.json`, smart ci.yml verified on GitHub |
+
+**Smart selective CI proven** (local demos on the rendered monolith): `services/api/` change →
+build `[api]` only · `services/fe/` → `[fe]` · shared path (`.github/`) → ALL (`reason=shared:`) ·
+README-only → **zero** services · empty diff → safe fallback ALL · `depends_on` closure included.
+Hypothesis found a real bug during authoring (shared-path reason was input-order-dependent) — fixed
+in the resolver, not the test.
+
+Env bugs fixed in integration: Node 26's broken global `localStorage` shadowing jsdom (auth reads
+`window.localStorage`; vitest setup installs an in-memory Storage when the env has none).
+
+---
+
 ## Decisions log
 
 - **D-08** Memtrace-driven coherence pass (style fingerprint + centrality). Extracted the duplicated

@@ -59,10 +59,43 @@ describe('CreatedScreen', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders one ramboll/{slug}-{type} chip per service', () => {
+  it('renders one ramboll/{slug}-{type} chip per service when no real repos exist', () => {
     setup();
     expect(screen.getByText('ramboll/district-heating-optimizer-fe')).toBeInTheDocument();
     expect(screen.getByText('ramboll/district-heating-optimizer-api')).toBeInTheDocument();
+  });
+
+  it('renders the REAL outcome repos as owner/name links to their html_url', () => {
+    setup({
+      repos: [
+        {
+          owner: 'Alex793x',
+          name: 'district-heating-optimizer-fe',
+          html_url: 'https://github.com/Alex793x/district-heating-optimizer-fe',
+          default_branch: 'main',
+          branches: ['main', 'dev', 'staging'],
+        },
+        {
+          owner: 'Alex793x',
+          name: 'district-heating-optimizer-api',
+          html_url: 'https://github.com/Alex793x/district-heating-optimizer-api',
+          default_branch: 'main',
+          branches: ['main', 'dev', 'staging'],
+        },
+      ],
+    });
+    const fe = screen.getByRole('link', { name: 'Alex793x/district-heating-optimizer-fe' });
+    expect(fe).toHaveAttribute(
+      'href',
+      'https://github.com/Alex793x/district-heating-optimizer-fe',
+    );
+    const api = screen.getByRole('link', { name: 'Alex793x/district-heating-optimizer-api' });
+    expect(api).toHaveAttribute(
+      'href',
+      'https://github.com/Alex793x/district-heating-optimizer-api',
+    );
+    // The derived design chips are replaced by the real coordinates.
+    expect(screen.queryByText('ramboll/district-heating-optimizer-fe')).not.toBeInTheDocument();
   });
 
   it('wires the two CTAs to their callbacks', () => {

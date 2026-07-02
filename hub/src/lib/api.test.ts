@@ -47,6 +47,46 @@ describe("KeelApi", () => {
     );
   });
 
+  it("GET /api/users returns the global contributors (with chapter)", async () => {
+    const people = [
+      {
+        id: "u-joe",
+        name: "Joe Evans",
+        email: "joe.evans@ramboll.com",
+        github_login: "joe-evans",
+        chapter: "Developer Platform Engineering",
+      },
+    ];
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(people));
+    const api = new KeelApi({ baseUrl: "http://api.test", fetchImpl });
+    await expect(api.getUsers()).resolves.toEqual(people);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://api.test/api/users",
+      expect.anything(),
+    );
+  });
+
+  it("GET /api/service-catalog returns the typed catalog", async () => {
+    const catalog = [
+      {
+        id: "fe",
+        tag: "FE",
+        label: "Frontend",
+        langs: [
+          { id: "react", name: "React", available: true },
+          { id: "vue", name: "Vue", available: false },
+        ],
+      },
+    ];
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(catalog));
+    const api = new KeelApi({ baseUrl: "http://api.test", fetchImpl });
+    await expect(api.getServiceCatalog()).resolves.toEqual(catalog);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://api.test/api/service-catalog",
+      expect.anything(),
+    );
+  });
+
   it("POST /api/initialize sends JSON with the right method + headers + body", async () => {
     const payload: InitializePayload = {
       project_name: "invoicing-api",
@@ -56,18 +96,22 @@ describe("KeelApi", () => {
       service_kind: "rest-api",
       description: "desc",
       author: "Anya",
+      layout: "multi-repo",
+      services: [{ type: "api", lang: "python" }],
+    };
+    const repo = {
+      owner: "Alex793x",
+      name: "keel-e2e-invoicing-api",
+      html_url: "https://github.com/Alex793x/keel-e2e-invoicing-api",
+      default_branch: "main",
+      branches: ["main", "dev", "staging"],
     };
     const response = {
       events: [],
       outcome: {
         project: "invoicing-api",
-        repo: {
-          owner: "Alex793x",
-          name: "keel-e2e-invoicing-api",
-          html_url: "https://github.com/Alex793x/keel-e2e-invoicing-api",
-          default_branch: "main",
-          branches: ["main", "dev", "staging"],
-        },
+        repo,
+        repos: [repo],
         docs_path: "docs/",
         blueprint_version: "1.0.0",
         catalog_id: "cat-1",

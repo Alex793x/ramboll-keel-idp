@@ -1,0 +1,57 @@
+# AGENTS.md — agent-agnostic guide for {{ project_name }}
+
+This file orients **any** coding agent (Cursor, GitHub Copilot, Codex, Continue,
+and others) working in `{{ project_name }}`, a Ramboll **monolith** owned by the
+**{{ department.name }}** department
+({% for u in users %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}). {{ description }}
+
+It is the vendor-neutral twin of `CLAUDE.md`; both point at the same binding
+standards under `.claude/skills/`.
+
+## Binding standards (read before editing)
+
+The engineering rules for this repo live as skills in `.claude/skills/`. Apply
+them on every change:
+
+1. **`.claude/skills/monorepo-selective-ci/SKILL.md`** — the
+   `keel.services.json` contract: every service = a `services/<dir>/` directory
+   **plus** a manifest entry with honest `depends_on`; shared-path changes
+   (`.github/`, `keel.services.json`, `libs/`) rebuild everything; the CI only
+   rebuilds affected services.
+2. **`.claude/skills/property-based-testing/SKILL.md`** — every new pure function
+   ships with at least one **Hypothesis** property test (idempotency, invariants,
+   round-trip, metamorphic). Treat a shrinking counterexample as a real bug.
+3. **`.claude/skills/python-clean-code/SKILL.md`** — small, single-responsibility,
+   **fully-typed** functions with docstrings; guard clauses; no dead code.
+4. **`.claude/skills/git-ci-governance/SKILL.md`** — `main`/`dev`/`staging`;
+   branches named **exactly** `feature/<ticket>-<slug>`, `bug/<ticket>-<slug>`, or
+   `hotfix/<ticket>-<slug>`; Conventional Commits; PRs into `dev` with review +
+   CODEOWNERS + a green `gate` check.
+
+## Services in this monolith
+
+| Dir | Type | Language |
+| --- | --- | --- |
+{% for s in services %}| `services/{{ s.dir }}/` | {{ s.label }} | {{ s.lang }} |
+{% endfor %}
+The CI (`.github/workflows/ci.yml`) resolves every change against
+`keel.services.json` via `.github/scripts/detect_services.py` and rebuilds only
+the affected services (plus their transitive dependents).
+
+## Commands (root gate)
+
+```bash
+pip install -e ".[dev]"
+pytest                # resolver property tests — the always-on `gate` job
+
+# Dry-run the resolver against your working set:
+git diff --name-only dev...HEAD | python .github/scripts/detect_services.py \
+  --manifest keel.services.json --changed -
+```
+
+## Non-negotiables (summary)
+
+- New/changed service ⇒ keep `keel.services.json` in sync (dir + `depends_on`).
+- Never weaken the resolver's safe fallbacks (empty diff ⇒ ALL; error ⇒ ALL).
+- New pure function ⇒ at least one property test; keep the gate green.
+- Respect the branch model and naming; PRs go into `dev`.

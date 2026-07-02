@@ -6,9 +6,29 @@
 //! - `service_kind` is the template token (e.g. `"rest-api"`).
 
 use keel_core::InitRequest;
+use serde::Serialize;
 use serde_json::{json, Map, Value};
 
 use crate::to_package_name;
+
+/// Per-service template context (SPEC §12): injected as `service` when rendering one service's
+/// blueprint and as an element of the `services` array when rendering the monolith root.
+///
+/// Field names are the template contract: `{{ service.tag }}`, `{{ service.dir }}`,
+/// `{{ service.lang }}`, `{{ service.label }}`, `{{ service.repo_name }}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ServiceCtx {
+    /// Service-type tag (`fe|api|wk|dp|inf`).
+    pub tag: String,
+    /// Monolith `services/` directory (`{tag}` or `{tag}-{n}` per the ordinal rule).
+    pub dir: String,
+    /// Language slug (e.g. `python`, `react`).
+    pub lang: String,
+    /// Human label (e.g. `Backend API`).
+    pub label: String,
+    /// Multi-repo repository name (`{slug}-{tag}` or `{slug}-{tag}-{n}`).
+    pub repo_name: String,
+}
 
 /// Build the MiniJinja context: form inputs + derived `package_name`, `year`,
 /// `branch_conventions`, `department`, `users`.
@@ -59,6 +79,30 @@ pub fn derive_context(req: &InitRequest) -> Map<String, Value> {
         .collect();
     ctx.insert("users".into(), Value::Array(users));
 
+    ctx
+}
+
+/// Build the v3 MiniJinja context (SPEC §12): everything [`derive_context`] injects **plus**
+/// - `layout` — the request's [`keel_core::RepoLayout`] token (`"multi-repo"` / `"monolith"`);
+/// - `service` — the [`ServiceCtx`] object, when rendering one service's blueprint;
+/// - `services` — the full [`ServiceCtx`] array, when non-empty (the monolith-root render).
+///
+/// With `service = None` and `services = &[]` the result is exactly the v2 context plus the
+/// `layout` key (property-tested below), so v2 templates keep rendering unchanged.
+#[must_use]
+pub fn derive_context_v3(
+    req: &InitRequest,
+    service: Option<&ServiceCtx>,
+    services: &[ServiceCtx],
+) -> Map<String, Value> {
+    let mut ctx = derive_context(req);
+    ctx.insert("layout".into(), json!(req.layout.as_token()));
+    if let Some(svc) = service {
+        ctx.insert("service".into(), json!(svc));
+    }
+    if !services.is_empty() {
+        ctx.insert("services".into(), json!(services));
+    }
     ctx
 }
 
@@ -146,6 +190,80 @@ mod tests {
         assert_eq!(users.len(), 2);
         assert_eq!(users[0]["github_login"], json!("ada-gh"));
         assert_eq!(users[1]["github_login"], json!("linus-gh"));
+    }
+
+    fn service_ctx(tag: &str, dir: &str, lang: &str, label: &str, repo: &str) -> ServiceCtx {
+        ServiceCtx {
+            tag: tag.into(),
+            dir: dir.into(),
+            lang: lang.into(),
+            label: label.into(),
+            repo_name: repo.into(),
+        }
+    }
+
+    #[test]
+    fn v3_context_injects_layout_service_and_services() {
+        let mut req = request();
+        req.layout = keel_core::RepoLayout::Monolith;
+        let api = service_ctx("api", "api", "python", "Backend API", "invoicing-api-api");
+        let fe = service_ctx("fe", "fe", "react", "Frontend", "invoicing-api-fe");
+        let all = vec![api.clone(), fe.clone()];
+
+        let ctx = derive_context_v3(&req, Some(&api), &all);
+        assert_eq!(ctx["layout"], json!("monolith"));
+        assert_eq!(ctx["service"]["tag"], json!("api"));
+        assert_eq!(ctx["service"]["dir"], json!("api"));
+        assert_eq!(ctx["service"]["lang"], json!("python"));
+        assert_eq!(ctx["service"]["label"], json!("Backend API"));
+        assert_eq!(ctx["service"]["repo_name"], json!("invoicing-api-api"));
+        let services = ctx["services"].as_array().unwrap();
+        assert_eq!(services.len(), 2);
+        assert_eq!(services[0]["tag"], json!("api"));
+        assert_eq!(services[1]["repo_name"], json!("invoicing-api-fe"));
+        // v2 keys are all still present.
+        assert_eq!(ctx["project_name"], json!("invoicing-api"));
+        assert_eq!(ctx["package_name"], json!("invoicing_api"));
+    }
+
+    #[test]
+    fn v3_context_omits_service_and_services_when_absent() {
+        let ctx = derive_context_v3(&request(), None, &[]);
+        assert_eq!(ctx["layout"], json!("multi-repo"));
+        assert!(!ctx.contains_key("service"));
+        assert!(!ctx.contains_key("services"));
+    }
+
+    proptest::proptest! {
+        /// v3 with no service and no services array is exactly the v2 context + the `layout` key.
+        #[test]
+        fn v3_without_service_is_v2_plus_layout(
+            name in "[a-z][a-z0-9-]{2,20}",
+            description in "[ -~]{1,40}",
+            author in "[A-Za-z ]{1,20}",
+            monolith in proptest::bool::ANY,
+        ) {
+            let mut req = request();
+            req.project_name = name;
+            req.description = description;
+            req.author = author;
+            req.layout = if monolith {
+                keel_core::RepoLayout::Monolith
+            } else {
+                keel_core::RepoLayout::MultiRepo
+            };
+
+            let v2 = derive_context(&req);
+            let mut v3 = derive_context_v3(&req, None, &[]);
+
+            let layout = v3.remove("layout");
+            proptest::prop_assert_eq!(
+                layout,
+                Some(json!(req.layout.as_token())),
+                "v3 must inject exactly the request's layout token"
+            );
+            proptest::prop_assert_eq!(v3, v2, "v3 minus `layout` must equal the v2 context");
+        }
     }
 
     #[test]

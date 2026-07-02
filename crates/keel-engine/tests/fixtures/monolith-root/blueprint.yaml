@@ -1,0 +1,42 @@
+# Hermetic monolith-root fixture for keel-engine tests.
+# Mirrors the real blueprints/monolith-root schema (keel/v2) but is intentionally tiny.
+apiVersion: keel/v2
+kind: Blueprint
+
+metadata:
+  name: monolith-root
+  title: Monolith Root (fixture)
+  description: Minimal monolith-root fixture used only by keel-engine v3 tests.
+  version: "0.9.0"
+  owner: platform-engineering
+  tags: [test, fixture, monolith]
+
+parameters:
+  - id: project_name
+    title: Project name
+    type: string
+    required: true
+    pattern: "^[a-z][a-z0-9-]{2,40}$"
+  - id: description
+    title: Description
+    type: string
+    required: true
+  - id: author
+    title: Author
+    type: string
+    required: true
+
+template:
+  root: template
+  rename: ".j2"
+
+repository:
+  visibility: internal
+  default_branch: main
+  branches: [main, dev, staging]
+  protect:
+    - branch: main
+      require_pull_request: true
+      required_reviews: 1
+      require_codeowners: true
+      required_checks: [gate]

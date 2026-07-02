@@ -7,14 +7,17 @@
 //! - `GET  /api/health` → `{ "status": "ok" }`
 //! - `GET  /api/departments` → `[{ id, name, team_slug }]`
 //! - `GET  /api/departments/:id/users` → `[{ id, name, email, github_login }]` (404 if unknown)
+//! - `GET  /api/users` → `[{ id, name, email, github_login, chapter }]` (v3 global contributors)
+//! - `GET  /api/service-catalog` → `[{ id, tag, label, langs: [{ id, name, available }] }]`
 //! - `GET  /api/blueprints` → `[{ name, title, description, version, parameters }]`
-//! - `POST /api/initialize` → `{ events: [ProgressEvent], outcome: InitOutcome }`
+//! - `POST /api/initialize` → `{ events: [ProgressEvent], outcome: InitOutcome }` — the body
+//!   optionally carries v3 `layout` + `services`; legacy v2 bodies behave byte-identically
 //! - `GET  /api/projects` → `[InitOutcome]`
 //!
 //! Layout (each module has one job, keeping coupling low):
 //! - [`state`] — [`AppState`] + config defaults.
-//! - [`dto`] — the JSON wire shapes; [`dto::InitializeBody::to_selection`] bridges to the engine.
-//! - [`routes`] — the router + thin handlers + the blueprint scan.
+//! - [`dto`] — the JSON wire shapes; [`dto::InitializeBody::try_to_selection`] bridges to the engine.
+//! - [`routes`] — the router + thin handlers + the blueprint/service-catalog scans.
 //!
 //! The mocked catalog and the body→[`keel_core::InitRequest`] resolution live in
 //! [`keel_core::catalog`] (shared with `keel-cli`), so the two entry points never drift.
@@ -25,8 +28,10 @@ mod dto;
 mod routes;
 mod state;
 
-pub use dto::{BlueprintDto, DepartmentDto, InitializeBody, InitializeResponse};
-pub use routes::{app, scan_blueprints};
+pub use dto::{
+    BlueprintDto, DepartmentDto, InitializeBody, InitializeResponse, ServiceLangDto, ServiceTypeDto,
+};
+pub use routes::{app, scan_blueprints, scan_service_catalog};
 pub use state::{AppState, DEFAULT_ADDR, DEFAULT_BLUEPRINTS_DIR, DEFAULT_OWNER};
 
 /// Re-exported for convenience: the mocked catalog the server is built around.

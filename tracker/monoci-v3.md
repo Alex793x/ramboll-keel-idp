@@ -1,0 +1,151 @@
+# Tracker — fleet-monoci-v3: monolith root blueprint + smart selective CI
+
+Agent: **Fleet-MonoCI-V3** · Subtree: `blueprints/monolith-root/` (exclusive) · SPEC v3 §15 (binding), §11–§17 (context).
+
+## Status: DONE — blueprint complete, resolver property suite green locally, 4 CLI demos captured.
+
+## Files (20)
+
+```
+blueprints/monolith-root/
+├── blueprint.yaml                      keel/v2; name monolith-root 0.1.0; params trio
+│                                       (project_name/description/author); main/dev/staging;
+│                                       protect main required_checks [gate]; v2 postActions.
+└── template/
+    ├── README.md.j2                    overview + services INDEX table from {{ services }} +
+    │                                   3-para smart-CI explainer + branch model
+    ├── CODEOWNERS.j2                   python-service v3 pattern (all users; dept in comment;
+    │                                   explicit /.github/ /.claude/ /keel.services.json rows)
+    ├── CONTRIBUTING.md.j2              branch model + "CI only rebuilds affected services —
+    │                                   see .github/scripts/detect_services.py" + rule table
+    ├── CLAUDE.md.j2 / AGENTS.md.j2     point at the 4 skills; service table from {{ services }}
+    ├── LICENSE / SECURITY.md           byte-identical copies of python-service's (diff-verified)
+    ├── .gitignore                      union: python/node/go/dotnet/terraform + editor noise
+    ├── .editorconfig                   multi-lang (py=4, js/ts/yaml/tf=2, go=tabs, cs=4)
+    ├── pyproject.toml                  VERBATIM: name "monolith-gate", deps [], dev=pytest+
+    │                                   hypothesis, testpaths ["tests"], packages=[] (gate-only)
+    ├── .claude/skills/                 3 VERBATIM copies (property-based-testing,
+    │   │                               python-clean-code, git-ci-governance; diff-verified) +
+    │   └── monorepo-selective-ci/      NEW SKILL.md: manifest contract, resolution rules,
+    │                                   add-a-service recipe, honest depends_on, shared_paths ⇒
+    │                                   full rebuild, dry-run commands, checklist
+    ├── .github/scripts/
+    │   └── detect_services.py          VERBATIM (170 lines, stdlib-only, fully typed, pure core)
+    ├── .github/workflows/ci.yml        VERBATIM (162 lines) — contains `${{ }}`, so NOT .j2
+    ├── tests/test_detect_services.py   VERBATIM (255 lines) — hypothesis property suite
+    └── docs/
+        ├── index.md.j2                 service index + links
+        └── ci.md                       detection rules + worked-example table + local dry-runs
+```
+
+## Resolver contract (SPEC §15, implemented exactly)
+
+`affected(manifest, changed) -> {"all": bool, "reason": str, "services": [{dir,type,lang,name}]}`
+
+1. changed empty/None (or whitespace-only) ⇒ ALL, reason `fallback`
+2. any path under a `shared_paths` prefix ⇒ ALL, reason `shared:<path>` (min() of hits — order-independent)
+3. `services/<dir>/…` prefix match against manifest dirs ⇒ that dir
+4. `depends_on` transitive closure (fixed-point over reverse edges)
+5. anything else ⇒ ignored (empty selection; root gate still runs)
+
+Output in manifest order; deterministic in ALL fields. CLI is TOTAL: any internal
+error ⇒ prints all-services JSON, reason `error-fallback`, exit 0. `--github-output`
+writes `services=<compact json array>` + `any=<true|false>`. Accepts `type`/`lang`
+with `service_type`/`language` fallbacks.
+
+## Property suite (13 tests, all green)
+
+| Property | Test |
+| --- | --- |
+| Fallback: empty/None/whitespace diff ⇒ ALL | `test_fallback_empty_or_none_diff_selects_all` |
+| Shared ⇒ ALL (any mixed diff + shared path) | `test_shared_path_change_selects_all` |
+| Isolation: only svc-X paths ⇒ exactly closure(X) | `test_isolation_paths_under_one_service_yield_exactly_its_closure` |
+| Closure inflationary + idempotent + transitive | `test_closure_is_idempotent_transitive_and_inflationary` |
+| Monotonicity: c ⊆ c' ⇒ dirs(c) ⊆ dirs(c') (non-empty c) | `test_monotonicity_more_changes_never_shrink_the_selection` |
+| Determinism: shuffle + duplicate ⇒ identical result | `test_determinism_shuffled_and_duplicated_input_same_output` |
+| Totality: arbitrary junk paths never raise | `test_totality_arbitrary_junk_paths_never_raise` |
+| Root doc change ⇒ no services | `test_root_readme_change_affects_no_services` |
+| Dep chain in manifest order | `test_service_change_pulls_in_transitive_dependents` |
+| Shared workflow ⇒ ALL (example) | `test_shared_workflow_change_rebuilds_everything` |
+| Dir prefix collision (`api` vs `api-2`) does not leak | `test_dir_prefix_collision_does_not_leak` |
+| CLI round-trip incl. $GITHUB_OUTPUT lines | `test_cli_round_trip_writes_github_output_file` |
+| Malformed manifest ⇒ error-fallback, exit 0 | `test_cli_malformed_manifest_falls_back_to_all_and_exits_zero` |
+
+Manifests generated by a hypothesis strategy: 2–8 services, random DAG `depends_on`
+(edges only to earlier services). Monotonicity is stated for non-empty diffs —
+an empty diff means "unknown diff" (fallback ALL), not "no changes".
+
+**Property suite caught a real bug during verification:** `reason "shared:<path>"`
+originally reported the *first-seen* shared hit, so shuffled input changed the output
+(`shared:.github/0` vs `shared:.github/00`). Fixed in the resolver (`min()` of hits),
+not by weakening the test — per the property-based-testing skill.
+
+## CI (`.github/workflows/ci.yml`)
+
+- `detect`: checkout fetch-depth 0; PR ⇒ `origin/${base_ref}...HEAD` (base fetched, `|| true`),
+  push ⇒ `${event.before}..HEAD` guarded for the all-zero SHA ⇒ empty changed.txt ⇒ resolver
+  fallback-ALL; diff failure also degrades to empty file; outputs `services`/`any`.
+- `gate` (always; the required check on `main`): setup-python 3.12 → `pip install -e ".[dev]"`
+  → `pytest -q` → `python -c` manifest sanity (parses, dirs unique, dirs exist on disk;
+  wrapped in a literal block scalar — a plain scalar broke YAML on `: ` inside the f-string).
+- `services` (needs detect+gate; `if: needs.detect.outputs.any == 'true'`): `fail-fast: false`,
+  `matrix: include: ${{ fromJSON(needs.detect.outputs.services) }}`; per-lang steps in
+  `working-directory: services/${{ matrix.dir }}`: python ⇒ pip/pytest/ruff/black/mypy ·
+  node|react ⇒ node 22, npm ci/test/build --if-present · go ⇒ vet/test/build ·
+  dotnet ⇒ setup-dotnet 8, dotnet test · terraform ⇒ fmt -check/init -backend=false/validate.
+
+## Local verification evidence (scratchpad, uv venv python 3.12.13)
+
+Fake repo: script + tests copied preserving layout; hand-written `keel.services.json`
+(api ← fe, api ← wk depends_on chain); `services/{api,fe,wk}/` dirs on disk.
+
+- `pytest -q` ⇒ **13 passed** (after the determinism fix; 12 passed / 1 failed before it).
+- Gate simulation: `python -m pip install -e ".[dev]"` ⇒ `monolith-gate 0.1.0` installs
+  (`packages = []` works); `pytest -q` ⇒ 13 passed.
+- All 6 `.j2` render clean under jinja2 `StrictUndefined` with the SPEC §12 context
+  (v2 vars + `layout` + `services[{tag,dir,lang,label,repo_name}]`).
+- YAML: `blueprint.yaml` + `ci.yml` parse (pyyaml); job wiring asserted
+  (`needs: [detect, gate]`, matrix include expression, gate job name = required check).
+- Hygiene: no `.j2` contains `${{`; `ci.yml` contains `${{` and is non-`.j2`; resolver non-`.j2`.
+- Verbatim copies diff-verified byte-identical (3 skills, LICENSE, SECURITY.md).
+
+### Demo 1 — svc-only: `services/wk/tasks.py`
+
+```json
+{"all": false, "reason": "selective", "services": [
+  {"dir": "wk", "type": "wk", "lang": "python", "name": "Worker"}]}
+```
+`$GITHUB_OUTPUT`: `services=[{"dir":"wk","type":"wk","lang":"python","name":"Worker"}]` · `any=true`
+
+### Demo 2 — shared: `.github/workflows/ci.yml`
+
+```json
+{"all": true, "reason": "shared:.github/workflows/ci.yml", "services": [
+  {"dir": "api", ...}, {"dir": "fe", ...}, {"dir": "wk", ...}]}
+```
+`$GITHUB_OUTPUT`: all 3 services · `any=true`
+
+### Demo 3 — root-doc: `README.md` + `docs/ci.md`
+
+```json
+{"all": false, "reason": "selective", "services": []}
+```
+`$GITHUB_OUTPUT`: `services=[]` · `any=false` — gate runs, matrix skips.
+
+### Demo 4 — dep-chain: `services/api/src/app.py`
+
+```json
+{"all": false, "reason": "selective", "services": [
+  {"dir": "api", "type": "api", "lang": "python", "name": "Backend API"},
+  {"dir": "fe",  "type": "fe",  "lang": "react",  "name": "Frontend"},
+  {"dir": "wk",  "type": "wk",  "lang": "python", "name": "Worker"}]}
+```
+`fe` and `wk` pulled in via `depends_on: ["api"]`, manifest order preserved · `any=true`
+
+## Notes for the engine agent
+
+- The root render needs the `services` context array; `keel.services.json` itself is
+  engine-serialized (never templated here — by design).
+- Resolver tolerates both `type`/`lang` and `service_type`/`language` manifest keys.
+- `gate` is the only required check on `main` (blueprint `protect`); the matrix job name is
+  `"<name> (services/<dir>)"` per service if per-service required checks are ever wanted.

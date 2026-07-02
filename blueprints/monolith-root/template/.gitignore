@@ -1,0 +1,64 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+wheels/
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# --- Node / frontend ---
+node_modules/
+.npm/
+*.tsbuildinfo
+.next/
+.nuxt/
+.vite/
+storybook-static/
+
+# --- Go ---
+*.test
+*.out
+go.work.sum
+
+# --- .NET ---
+bin/
+obj/
+*.user
+*.suo
+
+# --- Terraform ---
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# --- Docs build output ---
+site/
+
+# --- Editor / OS noise ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# --- Local environment files ---
+.env
+.env.*
+!.env.example

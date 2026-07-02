@@ -1,0 +1,155 @@
+"""Pure record-normalisation pipeline for {{ project_name }}.
+
+The canonical first stage of the pipeline: raw tabular records (as parsed from
+CSV/Excel/API payloads) → normalised records with clean ``snake_case`` keys and
+whitespace-sane values. Every function here is *pure* (same input → same
+output, no I/O, no mutation), which makes its behaviour expressible as
+**properties** — see ``tests/test_properties.py``.
+
+Owned by the {{ department.name }} department.
+"""
+
+from __future__ import annotations
+
+import re
+import unicodedata
+from collections.abc import Callable, Iterable, Mapping
+from typing import TypeVar
+
+__all__ = [
+    "normalize_key",
+    "normalize_record",
+    "normalize_records",
+    "normalize_value",
+    "partition_records",
+]
+
+T = TypeVar("T")
+
+# Characters that are *not* an unaccented lowercase letter, digit or underscore.
+_NON_KEY_CHARS = re.compile(r"[^a-z0-9_]+")
+
+# A run of two or more underscores, collapsed to a single underscore.
+_UNDERSCORE_RUN = re.compile(r"_{2,}")
+
+# Matches any run of one or more Unicode whitespace characters.
+_WHITESPACE_RUN = re.compile(r"\s+")
+
+
+def normalize_key(key: str) -> str:
+    """Turn an arbitrary column heading into a ``snake_case`` identifier.
+
+    The transformation is: Unicode-normalise to ASCII, lowercase, replace every
+    non ``[a-z0-9_]`` run with a single underscore, then trim edge underscores.
+
+    Properties this guarantees (see the property tests):
+
+    * **Idempotent** — ``normalize_key(normalize_key(x)) == normalize_key(x)``.
+    * **Charset invariant** — the output only ever matches ``^[a-z0-9_]*$``.
+    * **No edge or doubled underscores** in the output.
+
+    Args:
+        key: Arbitrary column heading text.
+
+    Returns:
+        The ``snake_case`` key (possibly the empty string when nothing
+        identifier-like survives).
+    """
+    # Decompose accents (é -> e + combining mark) then drop the marks.
+    decomposed = unicodedata.normalize("NFKD", key)
+    ascii_text = decomposed.encode("ascii", "ignore").decode("ascii")
+
+    underscored = _NON_KEY_CHARS.sub("_", ascii_text.lower())
+    collapsed = _UNDERSCORE_RUN.sub("_", underscored)
+    return collapsed.strip("_")
+
+
+def normalize_value(value: str) -> str:
+    """Collapse internal whitespace runs to single spaces and strip the ends.
+
+    Properties this guarantees (see the property tests):
+
+    * **Idempotent** — normalising twice equals normalising once.
+    * **Clean** — no edge whitespace and no double spaces in the result.
+
+    Args:
+        value: Arbitrary cell text.
+
+    Returns:
+        The whitespace-normalised value.
+    """
+    return _WHITESPACE_RUN.sub(" ", value).strip()
+
+
+def normalize_record(record: Mapping[str, str]) -> dict[str, str]:
+    """Normalise one raw record: clean keys, clean values, drop unusable keys.
+
+    Keys are passed through :func:`normalize_key`, values through
+    :func:`normalize_value`. Keys that normalise to the empty string are
+    dropped; when two raw keys collide after normalisation, the **first**
+    occurrence wins (deterministic, order-preserving).
+
+    Properties this guarantees (see the property tests):
+
+    * **Idempotent** — re-normalising a normalised record changes nothing.
+    * **Key invariant** — every key matches ``^[a-z0-9_]+$``.
+    * **Value invariant** — every value is whitespace-normalised.
+
+    Args:
+        record: One raw record (heading → cell text).
+
+    Returns:
+        The normalised record.
+    """
+    normalized: dict[str, str] = {}
+    for raw_key, raw_value in record.items():
+        key = normalize_key(raw_key)
+        if not key or key in normalized:
+            continue
+        normalized[key] = normalize_value(raw_value)
+    return normalized
+
+
+def normalize_records(records: Iterable[Mapping[str, str]]) -> list[dict[str, str]]:
+    """Normalise a batch of records, one output per input.
+
+    Properties this guarantees (see the property tests):
+
+    * **Count preserved** — exactly one normalised record per input record.
+    * **Elementwise** — equals mapping :func:`normalize_record` over the input.
+
+    Args:
+        records: The raw records, in order.
+
+    Returns:
+        The normalised records, in the same order.
+    """
+    return [normalize_record(record) for record in records]
+
+
+def partition_records(
+    records: Iterable[T], predicate: Callable[[T], bool]
+) -> tuple[list[T], list[T]]:
+    """Split records into ``(matching, rest)`` in a single, order-stable pass.
+
+    The classic pipeline fork: valid records continue downstream, the rest go
+    to a dead-letter/rework lane — without losing or duplicating anything.
+
+    Properties this guarantees (see the property tests):
+
+    * **Lossless** — ``matching + rest`` is a reordering-free split: every
+      record lands in exactly one lane and relative order is preserved.
+    * **Faithful** — ``matching`` is exactly the records the predicate accepts.
+
+    Args:
+        records: The records to split, in order.
+        predicate: Decides whether a record belongs in the ``matching`` lane.
+
+    Returns:
+        A ``(matching, rest)`` pair of lists.
+    """
+    matching: list[T] = []
+    rest: list[T] = []
+    for record in records:
+        (matching if predicate(record) else rest).append(record)
+    return matching, rest

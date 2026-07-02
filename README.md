@@ -118,13 +118,14 @@ Then in the hub (the **Ramboll Developer Hub** control-room UI, ported 1:1 from
 1. **Sign in** with *Continue with Microsoft* (mock SSO stand-in for Entra ID).
 2. Explore **Home**, **Projects**, and the **Knowledge Base** (living docs with declarative
    flow/sequence diagrams).
-3. **Initialize a project** — name it, pick a **Global Business Area** and **contributors**, add
-   **service components** (FE / API / Worker / Data pipeline / Infra) and watch the live blueprint.
-4. **Initialize** runs the design's simulated 6-step provisioning and lands on the *created* screen.
-
-> **Note:** the redesigned hub wizard is a design-faithful port (multi-service blueprints —
-> simulated provisioning). Creating **real** GitHub repositories runs through `keel-api` /
-> `keel-cli` below; wiring the new multi-service wizard to the engine is tracked as follow-up work.
+3. **Initialize a project** — name it, pick a **Global Business Area** and **contributors** (live
+   from `/api/users`), add **service components** (FE / API / Worker / Data pipeline / Infra —
+   availability comes live from `/api/service-catalog`), choose **multi-repo or monolith**, and
+   watch the live blueprint.
+4. **Initialize** POSTs to the engine (`/api/initialize`) and creates **real GitHub repositories**
+   — one per service (multi-repo) or a single monolith with `services/<dir>/` + the smart
+   selective-CI pipeline. Docs-only pushes to a monolith build **zero** services; a change under
+   `services/api/` builds only `api` (+ dependents via `depends_on`); shared paths rebuild all.
 
 ### Headless path (CLI / E2E)
 
@@ -144,6 +145,8 @@ Useful flags:
 
 | Flag | Effect |
 | --- | --- |
+| `--layout <multi-repo\|monolith>` | v3: one repo per service (default) or a single monolith repo with `services/<dir>/` + smart selective CI. |
+| `--services <type:lang,…>` | v3: service components, e.g. `api:python,fe:react` (types `fe\|api\|wk\|dp\|inf`). Omit for the legacy single-service path. |
 | `--owner <login>` | GitHub account/org the new repo is created under (default `Alex793x`). |
 | `--octocrab` | Create the repo through the typed **octocrab** SDK (auth from `gh auth token`) instead of the `gh` CLI. |
 | `--dry-run` | Use the in-memory `FakeProvider` — renders + records, creates **no** real repo. |
