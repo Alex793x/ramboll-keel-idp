@@ -37,7 +37,7 @@ pipeline anymore. It runs on `push` to `main` / `dev` / `staging` and on every
 | --- | --- | --- |
 | **rust** | `dtolnay/rust-toolchain@stable` (+ rustfmt, clippy); `cargo fmt --all --check`; `cargo clippy --workspace --all-targets -- -D warnings`; `cargo test --workspace` | the `keel-*` crates are formatted, lint-clean (warnings denied), and pass the unit + `proptest` suite |
 | **hub** | `actions/setup-node@v4` (Node 22); `cd hub && npm ci && npm test && npm run build` | the TanStack Start hub installs cleanly, its Vitest (+ `fast-check`) suite is green, and it builds |
-| **blueprint-is-software** | build `keel-cli`, render the `python-service` blueprint **locally** to `$RUNNER_TEMP/out`, then in the generated repo `pip install -e ".[dev,api]"` and run `pytest && ruff check . && black --check . && mypy .` | whitepaper §5.4: a blueprint that cannot produce a **green-from-birth** repo is a failing build |
+| **blueprint-is-software** | build `keel-cli`, render the Python golden path (`services/api-python`, the default for a bare init) **locally** to `$RUNNER_TEMP/out`, then in the generated repo `pip install -e ".[dev,api]"` and run `pytest && ruff check . && black --check . && mypy .` | whitepaper §5.4: a blueprint that cannot produce a **green-from-birth** repo is a failing build |
 
 ### The "blueprint is software" job in detail
 
@@ -56,20 +56,16 @@ cargo run -p keel-cli -- init \
   --description "CI render check" \
   --author ci \
   --local "$RUNNER_TEMP/out"
-# then, inside $RUNNER_TEMP/out/ci-check:
+# a bare init defaults to a single api:python service → repo "ci-check-api";
+# then, inside $RUNNER_TEMP/out/ci-check-api:
 pip install -e ".[dev,api]" && pytest && ruff check . && black --check . && mypy .
 ```
 
-> **Contract note (`--local`).** The local-render flag is named `--local <dir>`
-> per the Fleet-CI assignment; the binding contract is SPEC §3.6. As of this
-> writing `crates/keel-cli` is still a Phase-0 stub (Fleet-Api-RS owns the `init`
-> command). If Fleet-Api-RS lands a different name or shape for local rendering,
-> update the single `cargo run -p keel-cli -- init …` invocation in `ci.yml`
-> (and the note in `tracker/ci.md`). Nothing else in this job depends on it.
+> **`--local <dir>`** writes the rendered repo to disk with no GitHub/`gh` (SPEC §3.6).
 
 The blueprint's `[dev,api]` extras (`pytest`, `hypothesis`, `ruff`, `black`,
 `mypy`, `mkdocs-material`, plus `fastapi` / `uvicorn` for the REST surface) come
-from `blueprints/python-service/template/pyproject.toml.j2`, so the four gate
+from `blueprints/services/api-python/template/pyproject.toml.j2`, so the four gate
 commands have all their tooling. The blueprint targets `>=3.11`; CI pins 3.12.
 
 ---

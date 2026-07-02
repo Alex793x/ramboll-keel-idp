@@ -520,7 +520,7 @@ describe('buildInitializePayload', () => {
   it('maps the full state onto the exact v2 wire body', () => {
     expect(buildInitializePayload(baseState({ layout: 'monolith' }))).toEqual({
       project_name: 'District Heating Optimizer',
-      blueprint: 'python-service',
+      blueprint: 'api-python',
       department_id: 'energy',
       user_ids: ['u-joe'],
       service_kind: 'rest-api',

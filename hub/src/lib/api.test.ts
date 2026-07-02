@@ -90,7 +90,7 @@ describe("KeelApi", () => {
   it("POST /api/initialize sends JSON with the right method + headers + body", async () => {
     const payload: InitializePayload = {
       project_name: "invoicing-api",
-      blueprint: "python-service",
+      blueprint: "api-python",
       department_id: "buildings",
       user_ids: ["u-anya"],
       service_kind: "rest-api",

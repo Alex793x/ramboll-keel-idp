@@ -1,14 +1,10 @@
-//! Integration + property tests for the 8-step initialization workflow.
+//! Integration + property tests for the 8-step initialization workflow, single-service path.
 //!
-//! These run against `keel_github::FakeProvider` (no network) and a hermetic fixture blueprint
-//! under `tests/fixtures/fixture-service/`. The blueprints dir is the fixtures dir and the request's
-//! `blueprint` field is `"fixture-service"`, so `Engine` resolves
-//! `<fixtures>/fixture-service/blueprint.yaml`.
-//!
-//! NOTE: `Engine::initialize` calls `keel_blueprint::{load_manifest,validate_request,render}`, which
-//! are implemented by a parallel agent. If those are still `todo!()` when these run, the workflow
-//! tests will panic at the `form`/`render` step. They are written to be correct once that crate
-//! lands; the orchestrator runs the final workspace test.
+//! These run against `keel_github::FakeProvider` (no network). A bare init (no explicit `services`)
+//! defaults to a single `api:python` service (SPEC §12), which the engine renders from the hermetic
+//! fixture blueprint at `tests/fixtures/services/api-python/`. The blueprints dir is the fixtures
+//! dir; the resulting single repo is named `<project>-api`. (The `blueprint` field on the request is
+//! vestigial for this path and no longer selects the blueprint.)
 
 use std::path::PathBuf;
 
@@ -31,7 +27,7 @@ fn fixtures_dir() -> PathBuf {
 fn sample_request(project: &str, kind: ServiceKind) -> InitRequest {
     InitRequest {
         project_name: project.to_owned(),
-        blueprint: "fixture-service".to_owned(),
+        blueprint: "api-python".to_owned(),
         department: Department {
             id: "buildings".into(),
             name: "Buildings".into(),
@@ -150,7 +146,7 @@ fn list_projects_roundtrips_what_initialize_registered() {
     assert!(engine.list_projects().unwrap().is_empty());
 
     let req_a = sample_request("alpha-svc", ServiceKind::RestApi);
-    let req_b = sample_request("beta-svc", ServiceKind::Worker);
+    let req_b = sample_request("beta-svc", ServiceKind::RestApi);
     let out_a = engine.initialize(&req_a, &provider, &mut |_| {}).unwrap();
     let out_b = engine.initialize(&req_b, &provider, &mut |_| {}).unwrap();
 
@@ -177,9 +173,11 @@ fn outcome_carries_complete_event_audit_trail() {
 
     let outcome = engine.initialize(&req, &provider, &mut |_| {}).unwrap();
     assert_canonical_order(&outcome.events);
-    assert_eq!(outcome.blueprint_version, "0.0.1");
+    // The default single service renders the `api-python` fixture blueprint (version 0.3.0); its
+    // repo takes the multi-repo `{project}-{tag}` name.
+    assert_eq!(outcome.blueprint_version, "0.3.0");
     assert_eq!(outcome.repo.owner, OWNER);
-    assert_eq!(outcome.repo.name, "audit-svc");
+    assert_eq!(outcome.repo.name, "audit-svc-api");
     // dev + staging were ensured.
     assert!(outcome.repo.branches.contains(&"dev".to_string()));
     assert!(outcome.repo.branches.contains(&"staging".to_string()));
@@ -191,13 +189,11 @@ proptest::proptest! {
     #[test]
     fn events_always_canonical_order(
         name in "[a-z][a-z0-9-]{2,40}",
-        worker in proptest::bool::ANY,
     ) {
         let tmp = TempDir::new().unwrap();
         let engine = engine_in(&tmp);
         let provider = FakeProvider::new();
-        let kind = if worker { ServiceKind::Worker } else { ServiceKind::RestApi };
-        let req = sample_request(&name, kind);
+        let req = sample_request(&name, ServiceKind::RestApi);
 
         let mut events = Vec::new();
         engine.initialize(&req, &provider, &mut |e| events.push(e.clone())).unwrap();

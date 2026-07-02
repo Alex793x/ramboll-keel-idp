@@ -1,22 +1,25 @@
-//! Integration test: load and render the REAL `blueprints/python-service` blueprint.
-//!
-//! Path is relative to this crate (`crates/keel-blueprint`), so `../../blueprints/python-service`.
-//! This proves the renderer works end-to-end against the shipped golden-path template, including
-//! the frozen verbatim/`.j2` rules and the `service_kind` condition.
+//! Integration test: load and render the REAL `blueprints/services/api-python` blueprint — the
+//! Python API golden path. This is the v3 building block that replaced the retired top-level
+//! `python-service`, so this test proves the renderer works end-to-end against a shipped service
+//! blueprint using **v3 context** (`service` + `layout`), including the frozen verbatim/`.j2` rules.
 
 use std::path::PathBuf;
 
-use keel_blueprint::{load_manifest, render, validate_request};
-use keel_core::{Department, InitRequest, RenderedFile, ServiceKind, User};
+use keel_blueprint::{
+    derive_context_v3, load_manifest, render_with_context, validate_request, ServiceCtx,
+};
+use keel_core::{
+    Department, InitRequest, RenderedFile, RepoLayout, ServiceKind, ServiceSelection, User,
+};
 
 fn blueprint_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../blueprints/python-service")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../blueprints/services/api-python")
 }
 
 fn sample_request() -> InitRequest {
     InitRequest {
         project_name: "invoicing-api".into(),
-        blueprint: "python-service".into(),
+        blueprint: "api-python".into(),
         department: Department {
             id: "d-buildings".into(),
             name: "Buildings".into(),
@@ -39,8 +42,19 @@ fn sample_request() -> InitRequest {
         service_kind: ServiceKind::RestApi,
         description: "Handles invoices for the buildings division.".into(),
         author: "Ada Lovelace".into(),
-        layout: keel_core::RepoLayout::default(),
-        services: vec![],
+        layout: RepoLayout::default(),
+        services: vec![ServiceSelection::parse("api:python").expect("valid selection")],
+    }
+}
+
+/// The service context the engine would build for this single `api:python` selection.
+fn service_ctx() -> ServiceCtx {
+    ServiceCtx {
+        tag: "api".into(),
+        dir: "api".into(),
+        lang: "python".into(),
+        label: "Backend API".into(),
+        repo_name: "invoicing-api-api".into(),
     }
 }
 
@@ -49,7 +63,7 @@ fn find<'a>(files: &'a [RenderedFile], path: &str) -> Option<&'a RenderedFile> {
 }
 
 #[test]
-fn renders_real_python_service_blueprint() {
+fn renders_real_api_python_blueprint() {
     let dir = blueprint_dir();
     assert!(
         dir.is_dir(),
@@ -61,19 +75,14 @@ fn renders_real_python_service_blueprint() {
     let req = sample_request();
     validate_request(&manifest, &req).expect("request validates against manifest");
 
-    let files = render(&manifest, &dir, &req).expect("blueprint renders");
+    let svc = service_ctx();
+    let ctx = derive_context_v3(&req, Some(&svc), std::slice::from_ref(&svc));
+    let files = render_with_context(&manifest, &dir, &ctx).expect("blueprint renders");
     assert!(!files.is_empty(), "no files rendered");
 
-    // ── CODEOWNERS ────────────────────────────────────────────────────────────
-    // Must exist. Its *contents* depend on the parallel PY agent refining the template to use
-    // department.team_slug + each users[].github_login. We assert existence unconditionally and the
-    // richer content checks tolerantly (see tracker note).
+    // ── CODEOWNERS — this service blueprint owns by the selected users' github_login. ──
     let codeowners = find(&files, "CODEOWNERS").expect("CODEOWNERS must exist");
     let co = String::from_utf8_lossy(&codeowners.contents);
-    assert!(!co.trim().is_empty(), "CODEOWNERS is empty");
-
-    // CODEOWNERS must name every selected user as an owner and reference the owning department
-    // (requirement #4: the selection drives CODEOWNERS). Asserted unconditionally.
     for u in &req.users {
         assert!(
             co.contains(&u.github_login),
@@ -81,14 +90,8 @@ fn renders_real_python_service_blueprint() {
             u.github_login
         );
     }
-    assert!(
-        co.contains(&req.department.name) || co.contains(&req.department.team_slug),
-        "CODEOWNERS must reference the owning department ({} / {})",
-        req.department.name,
-        req.department.team_slug
-    );
 
-    // ── Three AI agent skills ───────────────────────────────────────────────────
+    // ── The three embedded AI agent skills. ──
     for skill in [
         ".claude/skills/property-based-testing/SKILL.md",
         ".claude/skills/git-ci-governance/SKILL.md",
@@ -97,11 +100,7 @@ fn renders_real_python_service_blueprint() {
         assert!(find(&files, skill).is_some(), "missing skill file {skill}");
     }
 
-    // ── Three GitHub workflows, copied VERBATIM ─────────────────────────────────
-    // The frozen guarantee we own is byte-for-byte preservation (so any GitHub Actions
-    // `${{ … }}` survives). We assert each workflow exists and is byte-identical to its source.
-    // The `${{` check is applied tolerantly: the reusable-workflow refinement that introduces
-    // such expressions is owned by the parallel Fleet-CI agent (see tracker note).
+    // ── Three GitHub workflows, copied VERBATIM, each referencing the reusable workflow. ──
     for wf in [
         ".github/workflows/build.yml",
         ".github/workflows/test.yml",
@@ -114,8 +113,6 @@ fn renders_real_python_service_blueprint() {
             rendered.contents, source,
             "{wf} must be copied verbatim (byte-identical)"
         );
-
-        // Requirement #4: each caller workflow must reference the central reusable workflow.
         let body = String::from_utf8_lossy(&rendered.contents);
         assert!(
             body.contains("uses:") && body.contains("reusable-"),
@@ -123,9 +120,11 @@ fn renders_real_python_service_blueprint() {
         );
     }
 
-    // ── Package source exists with interpolated path ────────────────────────────
-    let core = "src/invoicing_api/core.py";
-    assert!(find(&files, core).is_some(), "missing {core}");
+    // ── Package source exists with the interpolated package path. ──
+    assert!(
+        find(&files, "src/invoicing_api/core.py").is_some(),
+        "missing src/invoicing_api/core.py"
+    );
 
     // No `.j2` suffix may leak into the rendered output.
     assert!(

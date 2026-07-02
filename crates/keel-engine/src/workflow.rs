@@ -13,7 +13,6 @@
 //! fallbacks, service-blueprint resolution, per-service context building, and the committed
 //! `branch-protection.json` governance record.
 
-mod legacy;
 mod mono;
 mod multi;
 
@@ -59,10 +58,20 @@ pub(crate) fn run(
     provider: &dyn RepoProvider,
     on_event: &mut dyn FnMut(&ProgressEvent),
 ) -> Result<InitOutcome> {
-    if req.services.is_empty() {
-        // Legacy single-service path: exactly v2 behavior.
-        return legacy::run(req, owner, blueprints_dir, catalog_path, provider, on_event);
-    }
+    // A bare init (no explicit services) defaults to a single Python service derived from
+    // `service_kind` (rest-api → api:python, worker → wk:python), rendered from
+    // `blueprints/services/`. There is no separate legacy/`python-service` path: a plain init is
+    // just a one-service multi-repo project.
+    let defaulted;
+    let req = if req.services.is_empty() {
+        defaulted = InitRequest {
+            services: keel_core::default_services(req.service_kind),
+            ..req.clone()
+        };
+        &defaulted
+    } else {
+        req
+    };
     match req.layout {
         RepoLayout::MultiRepo => {
             multi::run(req, owner, blueprints_dir, catalog_path, provider, on_event)

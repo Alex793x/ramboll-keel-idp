@@ -12,7 +12,7 @@
 > **v2 supersedes v1.** v1 (Python FastAPI hub + Python engine) is removed. The **engine is now
 > Rust** (a Cargo workspace — this matches the whitepaper's actual proposal, §4.1) and the **hub is
 > TanStack Start** (React/TS). Two v1 deliverables are **retained because they are correct,
-> tested, and language-agnostic**: the Python golden-path **blueprint** (`blueprints/python-service/`)
+> tested, and language-agnostic**: the Python golden-path **blueprint** (`blueprints/services/api-python/`)
 > and the **reusable GitHub Actions** (`.github/`). Both are refined here, not rebuilt.
 
 ---
@@ -81,7 +81,7 @@ pub struct User { pub id: String, pub name: String, pub email: String, pub githu
 pub enum ServiceKind { RestApi, Worker }
 pub struct InitRequest {            // what the form produces
     pub project_name: String,       // validated ^[a-z][a-z0-9-]{2,40}$
-    pub blueprint: String,          // e.g. "python-service"
+    pub blueprint: String,          // e.g. "api-python"
     pub department: Department,
     pub users: Vec<User>,           // selected owners → CODEOWNERS
     pub service_kind: ServiceKind,
@@ -241,7 +241,7 @@ Then the fleet fills bodies + tests in parallel:
 | Workflow engine | Fleet-Engine-RS | `crates/keel-engine/` |
 | HTTP API + CLI | Fleet-Api-RS | `crates/keel-api/`, `crates/keel-cli/` |
 | Hub UI | Fleet-Hub | `hub/` |
-| Python blueprint refine | Fleet-Blueprint-PY | `blueprints/python-service/` |
+| Python blueprint refine | Fleet-Blueprint-PY | `blueprints/services/api-python/` |
 | Reusable CI + Keel CI | Fleet-CI | `.github/` |
 | Docs | Fleet-Docs | `README.md`, `architecture.md`, `docs/` |
 

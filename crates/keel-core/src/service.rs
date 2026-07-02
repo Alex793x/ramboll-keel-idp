@@ -198,6 +198,22 @@ pub fn service_dirs(services: &[ServiceSelection]) -> Vec<String> {
     ordinal_suffixes(services)
 }
 
+/// The default single-service selection for a bare init (no explicit `services`): the legacy
+/// `service_kind` maps onto the Python golden path — REST API → `api:python`, worker → `wk:python`.
+/// This is what lets the components model be the *only* path (there is no separate `python-service`
+/// blueprint): a plain init is just a one-service multi-repo project.
+#[must_use]
+pub fn default_services(service_kind: crate::ServiceKind) -> Vec<ServiceSelection> {
+    let service_type = match service_kind {
+        crate::ServiceKind::RestApi => ServiceType::Api,
+        crate::ServiceKind::Worker => ServiceType::Wk,
+    };
+    vec![ServiceSelection {
+        service_type,
+        language: "python".to_owned(),
+    }]
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // keel.services.json — the monolith's machine-readable service registry
 // ─────────────────────────────────────────────────────────────────────────────
@@ -285,6 +301,19 @@ mod tests {
             service_type: t,
             language: lang.to_owned(),
         }
+    }
+
+    #[test]
+    fn default_services_maps_service_kind_to_the_python_golden_path() {
+        use crate::ServiceKind;
+        assert_eq!(
+            default_services(ServiceKind::RestApi),
+            vec![sel(ServiceType::Api, "python")]
+        );
+        assert_eq!(
+            default_services(ServiceKind::Worker),
+            vec![sel(ServiceType::Wk, "python")]
+        );
     }
 
     #[test]

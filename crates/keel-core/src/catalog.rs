@@ -182,7 +182,7 @@ mod tests {
     fn valid_selection() -> Selection {
         Selection {
             project_name: "invoicing-api".to_owned(),
-            blueprint: "python-service".to_owned(),
+            blueprint: "api-python".to_owned(),
             department_id: "energy".to_owned(),
             user_ids: vec!["u-alex".to_owned()],
             service_kind: "rest-api".to_owned(),

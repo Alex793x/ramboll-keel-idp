@@ -399,7 +399,7 @@ export function buildInitializePayload(state: WizardState): InitializePayload {
   const dept = state.departments.find((d) => d.name === state.gba);
   return {
     project_name: state.name.trim(),
-    blueprint: 'python-service',
+    blueprint: 'api-python',
     department_id: dept?.id ?? (state.gba !== null ? slugOf(state.gba) : ''),
     user_ids: state.contributors
       .map((n) => state.users.find((u) => u.name === n)?.id)

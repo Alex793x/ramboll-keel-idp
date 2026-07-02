@@ -170,7 +170,7 @@ later without touching the engine — see §10.
 ## 5. Blueprint anatomy
 
 A blueprint is a self-contained, version-controlled directory. The Python golden path lives at
-`blueprints/python-service/` and has three parts.
+`blueprints/services/api-python/` and has three parts.
 
 ### 5.1 Manifest (`blueprint.yaml`)
 

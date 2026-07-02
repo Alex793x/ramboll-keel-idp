@@ -20,8 +20,8 @@ pub use catalog::{DepartmentRecord, MockCatalog, Person, Selection};
 /// v3 multi-service domain: layouts, service selections, naming, `keel.services.json` (SPEC §11).
 pub mod service;
 pub use service::{
-    service_dirs, service_repo_names, RepoLayout, ServiceEntry, ServiceSelection, ServiceType,
-    ServicesManifest,
+    default_services, service_dirs, service_repo_names, RepoLayout, ServiceEntry, ServiceSelection,
+    ServiceType, ServicesManifest,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

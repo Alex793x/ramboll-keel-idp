@@ -155,35 +155,32 @@ async fn blueprints(State(state): State<AppState>) -> Response {
 /// # Errors
 /// [`keel_core::KeelError::Io`] only on an unexpected read error of the directory itself.
 pub fn scan_blueprints(blueprints_dir: &std::path::Path) -> keel_core::Result<Vec<BlueprintDto>> {
-    let entries = match std::fs::read_dir(blueprints_dir) {
-        Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => {
-            return Err(keel_core::KeelError::Io(format!(
-                "reading blueprints dir {}: {e}",
-                blueprints_dir.display()
-            )))
-        }
-    };
-    let mut out = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        // Best-effort: skip subdirs without a loadable manifest.
-        if let Ok(m) = keel_blueprint::load_manifest(&path) {
-            out.push(BlueprintDto {
-                name: m.name,
-                title: m.title,
-                description: m.description,
-                version: m.version,
-                parameters: m.parameters,
-            });
-        }
-    }
+    // Top-level blueprints (e.g. `monolith-root`) plus the per-service building blocks under
+    // `services/` — so the endpoint lists every real blueprint, not just the roots.
+    let mut out = load_manifests_in(blueprints_dir);
+    out.extend(load_manifests_in(&blueprints_dir.join("services")));
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
+}
+
+/// Load a [`BlueprintDto`] from every immediate subdirectory of `dir` that has a loadable manifest.
+/// A missing directory yields an empty list; unloadable subdirs are skipped (best-effort).
+fn load_manifests_in(dir: &std::path::Path) -> Vec<BlueprintDto> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| keel_blueprint::load_manifest(&e.path()).ok())
+        .map(|m| BlueprintDto {
+            name: m.name,
+            title: m.title,
+            description: m.description,
+            version: m.version,
+            parameters: m.parameters,
+        })
+        .collect()
 }
 
 async fn initialize(State(state): State<AppState>, Json(raw): Json<serde_json::Value>) -> Response {
@@ -307,7 +304,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn blueprints_returns_python_service() {
+    async fn blueprints_includes_service_building_blocks() {
+        // The catalog now surfaces the per-service blueprints under `blueprints/services/`.
         let resp = get("/api/blueprints").await;
         assert_eq!(resp.status(), StatusCode::OK);
         let arr = body_json(resp).await;
@@ -315,7 +313,7 @@ mod tests {
             .as_array()
             .expect("array")
             .iter()
-            .any(|b| b["name"] == "python-service"));
+            .any(|b| b["name"] == "api-python"));
     }
 
     async fn post_initialize(state: AppState, body: serde_json::Value) -> Response {

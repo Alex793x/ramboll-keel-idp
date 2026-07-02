@@ -6,10 +6,10 @@ name: ci
 #   1. rust   — fmt + clippy (deny warnings) + the workspace test suite
 #               (unit + proptest) for the keel-* crates.
 #   2. hub    — the TanStack Start experience plane: install, Vitest, build.
-#   3. blueprint-is-software (whitepaper §5.4) — build the CLI, render the
-#               python-service blueprint to a throwaway dir with the *local*
-#               provider, then prove the generated repo is green from birth
-#               (its own pytest / ruff / black / mypy).
+#   3. blueprint-is-software (whitepaper §5.4) — build the CLI, render the Python
+#               golden-path blueprint (services/api-python, the default for a bare
+#               init) to a throwaway dir with the *local* provider, then prove the
+#               generated repo is green from birth (pytest / ruff / black / mypy).
 #
 # The reusable workflows in this directory (reusable-{build,test,validate}.yml)
 # are a *separate* product: they serve the generated Python repos and are NOT
@@ -94,7 +94,7 @@ jobs:
         run: npm run build
 
   # ---------------------------------------------------------------------------
-  # 3. Blueprint is software (whitepaper §5.4): render the python-service
+  # 3. Blueprint is software (whitepaper §5.4): render the Python golden-path
   #    blueprint locally via the CLI, then prove the generated repo is green.
   # ---------------------------------------------------------------------------
   blueprint-is-software:
@@ -121,16 +121,14 @@ jobs:
       - name: Build the CLI (keel-cli)
         run: cargo build -p keel-cli
 
-      - name: Render the python-service blueprint (local provider)
+      - name: Render the Python golden-path blueprint (local provider)
         shell: bash
         run: |
-          # Render the golden-path blueprint into a throwaway dir using the LOCAL
-          # provider (no GitHub, no `gh`): writes the full tree to disk so CI can
-          # assert it is green from its first commit. Contract: SPEC §3.6.
-          # NOTE: `--local <dir>` is the flag named in the Fleet-CI assignment;
-          # if Fleet-Api-RS lands a different name/shape for local rendering,
-          # update this single invocation (see tracker/ci.md). The output repo
-          # lands at "$RUNNER_TEMP/out/ci-check".
+          # A bare init (no --services) defaults to a single api:python service (the Python
+          # golden path, blueprints/services/api-python) rendered via the LOCAL provider (no
+          # GitHub, no `gh`): the full tree is written to disk so CI can assert it is green from
+          # its first commit. The single repo is named "<project>-api", so the output lands at
+          # "$RUNNER_TEMP/out/ci-check-api".
           cargo run -p keel-cli -- init \
             --project ci-check \
             --department energy \
@@ -147,7 +145,7 @@ jobs:
 
       - name: Install & gate the generated repo (green from birth)
         shell: bash
-        working-directory: ${{ runner.temp }}/out/ci-check
+        working-directory: ${{ runner.temp }}/out/ci-check-api
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,api]"

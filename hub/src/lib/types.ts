@@ -124,7 +124,7 @@ export interface InitOutcome {
  * Request body for `POST /api/initialize` (SPEC §13, v2).
  *
  * `blueprint` / `service_kind` are legacy v1 fields — the wizard sends the
- * inert placeholders `"python-service"` / `"rest-api"`; the engine resolves
+ * inert placeholders `"api-python"` / `"rest-api"`; the engine resolves
  * the real work from `layout` + `services`.
  */
 export interface InitializePayload {
