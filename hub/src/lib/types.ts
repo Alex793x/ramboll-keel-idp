@@ -56,10 +56,12 @@ export type RepoLayout = "multi-repo" | "monolith";
 /** Every valid layout token, default first. */
 export const REPO_LAYOUTS: readonly RepoLayout[] = ["multi-repo", "monolith"] as const;
 
-/** One chosen service component on the wire: type id + language slug. */
+/** One chosen service component on the wire: type id + language slug (+ optional custom name). */
 export interface ServiceSelection {
   type: string;
   lang: string;
+  /** v5: custom service name (SPEC §19.1, `SERVICE_NAME_RE`); omitted ⇒ server ordinal default. */
+  name?: string;
 }
 
 /** The kind of Python service a blueprint can produce (keel-core `ServiceKind`, kebab-case). */
@@ -281,3 +283,26 @@ export interface ProjectOverview {
   runs: OverviewRun[];
   commits: OverviewCommit[];
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v5 — Named services + POST /api/projects/:id/services (SPEC §19)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Body for `POST /api/projects/:id/services`. `name` optional (server defaults). */
+export interface AddServiceBody {
+  type: string;
+  lang: string;
+  name?: string;
+}
+
+/** Response from `POST /api/projects/:id/services` (SPEC §19.4). */
+export interface AddServiceResponse {
+  service: OverviewService;
+  repo: OverviewRepo | null;
+  /** false ⇒ catalog-only (seeded demo project — nothing was pushed/created). */
+  materialized: boolean;
+  events: ProgressEvent[];
+}
+
+/** Validation rule for custom service names (SPEC §19.1). */
+export const SERVICE_NAME_RE = /^[a-z][a-z0-9-]{1,29}$/;

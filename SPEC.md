@@ -545,3 +545,88 @@ null) => void }` — no fetching, internal focus state only.
       Projects/Home rows navigate to it.
 - [ ] BranchFlow: hover lift/dim, click focus mode, keyboard nav, entrance animation — tested.
 - [ ] Hub gates green (tsc, Vitest incl. fast-check `timeAgo` + generator-shape guards).
+
+---
+
+## 19. v5 — Named service components + add-service to an existing project
+
+Two user asks: (1) services must be **nameable at initialization** so teams can tell repos apart
+(`heat-optimizer-ingest` instead of `heat-optimizer-api-2`); (2) a **new service component can be
+added to an already-initialized project** from its dashboard.
+
+### 19.1 Naming contract (keel-core)
+
+- `ServiceSelection` gains `name: Option<String>` — **additive** (`serde(default)`; old payloads
+  byte-identical). Slug rule: `^[a-z][a-z0-9-]{1,29}$`, no trailing hyphen. CLI form gains an
+  optional third segment: `--services api:python:ingest,fe:react`.
+- `resolve_service_names(services) -> Result<Vec<String>>`: explicit name wins; unnamed entries get
+  the existing ordinal defaults (`tag` / `tag-n`, counted **among unnamed of that type only**);
+  any duplicate in the *final* name set ⇒ `Validation` error listing the collision.
+- Multi-repo repo = `{project}-{name}`; monolith dir = `services/{name}`. Property-pin: resolution
+  is deterministic, total on valid input, collision-free output, and byte-identical to v4 ordinals
+  when no names are given (regression guard on `service_repo_names`/`service_dirs`).
+
+### 19.2 Provider capability (additive trait methods, default `Unsupported`)
+
+```rust
+// keel-core RepoProvider — defaults return KeelError::Github("unsupported"), so existing impls compile.
+fn read_file(&self, repo: &RepoCoordinates, branch: &str, path: &str) -> Result<Option<Vec<u8>>>;
+fn push_files(&self, repo: &RepoCoordinates, branch: &str, files: &[RenderedFile], message: &str) -> Result<()>;
+```
+Implement for `GhCliProvider` (gh api contents / clone→commit→push via a temp dir), `LocalDirProvider`
+(fs + git commit), `FakeProvider` (in-memory, exposes `pushed()` for assertions). `OctocrabProvider`
+may keep defaults (documented).
+
+### 19.3 Engine: `materialize_service` (keel-engine)
+
+`Engine::add_service(project_slug, layout, selection, existing_names, provider, on_event) -> Result<AddServiceOutcome>`
+- Validates the resolved name against `existing_names` (collision ⇒ `Validation`).
+- **multi-repo**: render `blueprints/services/{tag}-{lang}` with v3 service ctx → create ONE new
+  repo `{project}-{name}` (same path as multi.rs; reuse its helpers), branches + protection record.
+- **monolith**: `read_file(keel.services.json)` from the project repo → append the entry → render
+  the service with monolith ctx (strip root-owned files, prefix `services/{name}/`) → single
+  `push_files` commit **to `dev`** (integration branch; promotion to main flows through the normal
+  governance) with message `feat: add service {name} ({tag}:{lang})`, including the updated
+  `keel.services.json` so the smart CI picks the service up immediately.
+- Emits ProgressEvents (subset keys: `form, render, create_repo|commit, register`). Idempotent-ish:
+  a second identical call collides on the name and errors cleanly.
+- `AddServiceOutcome { name, dir, repo: Option<RepoCoordinates>, events }`; catalog row (if any)
+  updated: repos appended (multi) — audit line either way.
+
+### 19.4 API (keel-api): `POST /api/projects/:id/services`
+
+Body `{ "type": "api", "lang": "python", "name": "ingest"? }` →
+`200 { "service": OverviewService, "repo": OverviewRepo|null, "materialized": bool, "events": [ProgressEvent] }`
+| `400 {error}` (bad type/lang/name, collision) | `404 {error}` (unknown project).
+- **Real catalog projects**: full engine materialization (`materialized: true`).
+- **Seeded design projects** (RMB-*): catalog-only — the addition is persisted to a small JSON
+  overlay store (`keel.additions.json`, gitignored, same dir as `keel.db`) and `materialized:
+  false` (no repo exists to push to; the hub labels it "catalog-only"). `overview()` **merges the
+  overlay** into `project.services` for both kinds, so additions survive restarts and appear on
+  the dashboard. Collision checks run against the merged service set.
+
+### 19.5 Hub
+
+- **Wizard naming**: each service row gains an inline mono name field (placeholder = the computed
+  default, e.g. `api-2`); typing a name live-updates the Live Blueprint repo names
+  (`ramboll/{slug}-{name}`); invalid slug or duplicate name shows the field in the error tone and
+  blocks Initialize; payload sends `name` only when the user set one. fast-check: payload names
+  always valid + unique; defaults byte-equal to v4 when untouched.
+- **Dashboard add-service**: a ghost `+ Add service` chip at the end of the header service-chip
+  row opens a glass popover (design tokens; popIn): type cards → language chips (live
+  availability from `/api/service-catalog`) → name field (prefilled suggestion) → `Add`. POSTs,
+  streams the returned events as a compact progress strip, refetches the overview; the new chip
+  (and repo in Day one, when materialized multi-repo) appears. `materialized:false` → subtle
+  mono note "catalog-only · demo project". Errors inline in the popover.
+- **CLI**: `keel-cli add-service --project <slug> --service type:lang[:name]` + provider flags.
+
+### 19.6 Area ownership (fleet)
+
+| Area | Exclusive files |
+| --- | --- |
+| **A — Rust** | `crates/keel-core/src/service.rs` + `lib.rs` (trait defaults), `crates/keel-github/src/{gh,local,lib}.rs` (new methods), `crates/keel-engine/src/**` (add_service), `crates/keel-api/src/{overview.rs additions-merge, routes.rs, dto.rs, additions.rs new}`, `crates/keel-cli/src/lib.rs`, `.gitignore` (+`keel.additions.json`), `tracker/named-services-rs.md` |
+| **B — Wizard naming** | `hub/src/lib/wizard-model.{ts,test.ts}`, `hub/src/components/wizard/**`, `tracker/wizard-naming.md` |
+| **C — Dashboard add** | `hub/src/components/project/**` except `flow/`, `hub/src/lib/api.{ts,test.ts}`, `tracker/dashboard-add-service.md` |
+
+TS types frozen by the orchestrator in `hub/src/lib/types.ts` before dispatch. All existing tests
+must stay green (v4 default-naming behavior is a frozen regression baseline).
