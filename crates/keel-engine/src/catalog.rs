@@ -109,6 +109,7 @@ mod tests {
             blueprint_version: "1.0.0".into(),
             catalog_id: catalog_id(owner, name),
             events: Vec::new(),
+            provenance: None,
         }
     }
 

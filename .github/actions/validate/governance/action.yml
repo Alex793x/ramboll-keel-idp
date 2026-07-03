@@ -1,0 +1,25 @@
+name: "validate · branch-name governance"
+description: "Enforce the Keel git branch-naming policy on pull requests (language-agnostic)."
+runs:
+  using: composite
+  steps:
+    - name: Branch-name governance (pull requests only)
+      if: ${{ github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        HEAD_REF: ${{ github.head_ref }}
+      run: |
+        # The PR head ref must be a working branch (feature/ | bug/ | hotfix/) or a protected
+        # branch (main | dev | staging). Inlined (not a shared script) so it resolves for remote
+        # callers — see .github/README.md "Branch-name governance".
+        if [[ "${HEAD_REF}" =~ ^(feature|bug|hotfix)/.+$ ]] \
+           || [[ "${HEAD_REF}" == "main" ]] \
+           || [[ "${HEAD_REF}" == "dev" ]] \
+           || [[ "${HEAD_REF}" == "staging" ]]; then
+          echo "Branch name '${HEAD_REF}' is valid."
+        else
+          echo "::error::Branch name '${HEAD_REF}' violates the Keel git governance policy."
+          echo "Working branches must be named feature/<ticket>-<slug>, bug/<...> or hotfix/<...>."
+          echo "Protected branches allowed: main, dev, staging."
+          exit 1
+        fi

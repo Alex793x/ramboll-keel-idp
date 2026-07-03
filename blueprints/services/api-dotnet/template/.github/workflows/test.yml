@@ -1,6 +1,6 @@
-# Test — self-contained .NET CI. Runs the xUnit suite (restores and builds the
-# referenced API project too). The check name `test` is part of the
-# branch-protection contract.
+# test — dispatched to the shared, language-aware pipeline. EVERY Keel repo points at the SAME
+# reusable workflow; the 'stack' input selects the right test composite (SPEC §14). Do NOT
+# inline pipeline logic here. The check name 'test' is part of the branch-protection contract.
 name: test
 
 on:
@@ -10,16 +10,6 @@ on:
 
 jobs:
   test:
-    name: dotnet test (xUnit)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up .NET 8
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "8.0.x"
-
-      - name: Test
-        run: dotnet test tests/Api.Tests/Api.Tests.csproj -c Release
+    uses: Alex793x/keel/.github/workflows/reusable-test.yml@main
+    with:
+      stack: dotnet

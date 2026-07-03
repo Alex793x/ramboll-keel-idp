@@ -264,6 +264,56 @@ pub struct InitOutcome {
     pub blueprint_version: String,
     pub catalog_id: String,
     pub events: Vec<ProgressEvent>,
+    /// v5.1: the initialization context (owners/department/author/layout), persisted so
+    /// [`Provenance::to_request`] can rebuild a render-context donor for a later add-service.
+    /// Additive (`serde(default)`): pre-v5.1 catalog rows deserialize to `None`.
+    #[serde(default)]
+    pub provenance: Option<Provenance>,
+}
+
+/// The parts of an [`InitRequest`] worth persisting so a project can grow a new service component
+/// later with the SAME department/owners/author it was born with (SPEC §19.4 real materialization).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Provenance {
+    pub department: Department,
+    /// The owning users (→ CODEOWNERS reviewers on any added service).
+    pub users: Vec<User>,
+    pub description: String,
+    pub author: String,
+    #[serde(default)]
+    pub layout: RepoLayout,
+}
+
+impl Provenance {
+    /// Capture the reusable context from an initialization request.
+    #[must_use]
+    pub fn from_request(req: &InitRequest) -> Self {
+        Self {
+            department: req.department.clone(),
+            users: req.users.clone(),
+            description: req.description.clone(),
+            author: req.author.clone(),
+            layout: req.layout,
+        }
+    }
+
+    /// Rebuild a render-context donor [`InitRequest`] for adding services to `project_name`.
+    /// `service_kind`/`blueprint`/`services` are placeholders — the add-service path overrides the
+    /// service set, and `service_kind` is unused once explicit services are present.
+    #[must_use]
+    pub fn to_request(&self, project_name: &str) -> InitRequest {
+        InitRequest {
+            project_name: project_name.to_owned(),
+            blueprint: String::new(),
+            department: self.department.clone(),
+            users: self.users.clone(),
+            service_kind: ServiceKind::RestApi,
+            description: self.description.clone(),
+            author: self.author.clone(),
+            layout: self.layout,
+            services: Vec::new(),
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

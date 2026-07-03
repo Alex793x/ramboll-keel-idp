@@ -1,85 +1,79 @@
 name: reusable-validate
 
-# Central, reusable VALIDATE workflow for the Ramboll Developer Platform (Keel).
-# Every generated repo's `validate.yml` calls this by path (contract: SPEC §6):
+# Central, language-aware VALIDATE dispatcher for the Ramboll Developer Platform (Keel).
+# EVERY generated repo's `validate.yml` calls this by path (contract: SPEC §6/§14):
 #   uses: Alex793x/keel/.github/workflows/reusable-validate.yml@main
-# Enforces standards-as-code: lint, format, types, branch-name governance, docs.
+#   with: { stack: <python|dotnet|node|react|go|terraform> }
+# Branch-name governance runs for EVERY stack (shared composite); the `stack` input then selects
+# the language validate composite under `.github/actions/validate/<stack>/`.
 #
-# Self-contained: setup is inlined (a remote caller does not ship our composite
-# action). Filename + the `python-version` input are the frozen contract.
+# Back-compat: `python-version` accepted; `stack` defaults to `python`.
 
 on:
   workflow_call:
     inputs:
+      stack:
+        description: "CI stack: python | dotnet | node | react | go | terraform."
+        required: false
+        type: string
+        default: "python"
+      working-directory:
+        description: "Directory to validate (repo root for single-service repos; services/<dir> in a monolith)."
+        required: false
+        type: string
+        default: "."
       python-version:
-        description: "Python version to validate against."
+        description: "Python version (python stack only)."
         required: false
         type: string
         default: "3.12"
 
 jobs:
   validate:
-    name: Lint, types, governance & docs
+    name: validate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ inputs.python-version }}
-        uses: actions/setup-python@v5
+      - name: Validate stack
+        shell: bash
+        run: |
+          case "${{ inputs.stack }}" in
+            python|dotnet|node|react|go|terraform) echo "stack=${{ inputs.stack }}" ;;
+            *) echo "::error::unknown stack '${{ inputs.stack }}' (expected python|dotnet|node|react|go|terraform)"; exit 1 ;;
+          esac
+
+      - name: Branch-name governance
+        uses: Alex793x/keel/.github/actions/validate/governance@main
+
+      - name: Validate (python)
+        if: ${{ inputs.stack == 'python' }}
+        uses: Alex793x/keel/.github/actions/validate/python@main
         with:
+          working-directory: ${{ inputs.working-directory }}
           python-version: ${{ inputs.python-version }}
-          cache: "pip"
 
-      - name: Install package + lint toolchain
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f setup.cfg ]; then
-            python -m pip install ".[dev]" || python -m pip install .
-          fi
-          python -m pip install ruff black mypy
+      - name: Validate (dotnet)
+        if: ${{ inputs.stack == 'dotnet' }}
+        uses: Alex793x/keel/.github/actions/validate/dotnet@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
 
-      - name: Lint (ruff)
-        shell: bash
-        run: ruff check .
+      - name: Validate (node)
+        if: ${{ inputs.stack == 'node' || inputs.stack == 'react' }}
+        uses: Alex793x/keel/.github/actions/validate/node@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
 
-      - name: Format check (black)
-        shell: bash
-        run: black --check .
+      - name: Validate (go)
+        if: ${{ inputs.stack == 'go' }}
+        uses: Alex793x/keel/.github/actions/validate/go@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
 
-      - name: Type check (mypy)
-        shell: bash
-        run: mypy .
-
-      - name: Branch-name governance (pull requests only)
-        if: ${{ github.event_name == 'pull_request' }}
-        shell: bash
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          # Governance gate (git-ci-governance skill): the PR head ref must be a
-          # working branch (feature/ | bug/ | hotfix/) or a protected branch
-          # (main | dev | staging). Inlined (not a shared script) so it resolves
-          # for remote callers — see .github/README.md "Branch-name governance".
-          if [[ "${HEAD_REF}" =~ ^(feature|bug|hotfix)/.+$ ]] \
-             || [[ "${HEAD_REF}" == "main" ]] \
-             || [[ "${HEAD_REF}" == "dev" ]] \
-             || [[ "${HEAD_REF}" == "staging" ]]; then
-            echo "Branch name '${HEAD_REF}' is valid."
-          else
-            echo "::error::Branch name '${HEAD_REF}' violates the Keel git governance policy."
-            echo "Working branches must be named feature/<ticket>-<slug>, bug/<...> or hotfix/<...>."
-            echo "Protected branches allowed: main, dev, staging."
-            exit 1
-          fi
-
-      - name: Docs build (mkdocs --strict, if configured)
-        shell: bash
-        run: |
-          if [ -f mkdocs.yml ]; then
-            python -m pip install mkdocs mkdocs-material
-            mkdocs build --strict
-          else
-            echo "No mkdocs.yml — skipping docs build."
-          fi
+      - name: Validate (terraform)
+        if: ${{ inputs.stack == 'terraform' }}
+        uses: Alex793x/keel/.github/actions/validate/terraform@main
+        with:
+          working-directory: ${{ inputs.working-directory }}

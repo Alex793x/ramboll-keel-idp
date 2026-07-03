@@ -1,6 +1,6 @@
-# Validate — self-contained Node CI. Strict TypeScript acts as the lint/type
-# gate (tsconfig: strict + noUnusedLocals/Parameters). The check name
-# `validate` is part of the branch-protection contract.
+# validate — dispatched to the shared, language-aware pipeline. EVERY Keel repo points at the SAME
+# reusable workflow; the 'stack' input selects the right validate composite (SPEC §14). Do NOT
+# inline pipeline logic here. The check name 'validate' is part of the branch-protection contract.
 name: validate
 
 on:
@@ -10,21 +10,6 @@ on:
 
 jobs:
   validate:
-    name: Typecheck (tsc --noEmit, strict)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      # The first commit ships no package-lock.json (versions are pinned exactly
-      # in package.json). Commit the lockfile, then switch this to `npm ci`.
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
-
-      - name: Typecheck
-        run: npm run typecheck
+    uses: Alex793x/keel/.github/workflows/reusable-validate.yml@main
+    with:
+      stack: react

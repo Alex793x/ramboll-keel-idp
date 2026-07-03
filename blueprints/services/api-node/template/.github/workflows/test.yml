@@ -1,6 +1,6 @@
-# Test — self-contained Node CI. Runs the Vitest suite (fast-check property
-# tests + route-table contract tests). The check name `test` is part of the
-# branch-protection contract.
+# test — dispatched to the shared, language-aware pipeline. EVERY Keel repo points at the SAME
+# reusable workflow; the 'stack' input selects the right test composite (SPEC §14). Do NOT
+# inline pipeline logic here. The check name 'test' is part of the branch-protection contract.
 name: test
 
 on:
@@ -10,21 +10,6 @@ on:
 
 jobs:
   test:
-    name: Vitest (property + contract)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      # The first commit ships no package-lock.json (versions are pinned exactly
-      # in package.json). Commit the lockfile, then switch this to `npm ci`.
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
-
-      - name: Test
-        run: npm test
+    uses: Alex793x/keel/.github/workflows/reusable-test.yml@main
+    with:
+      stack: node

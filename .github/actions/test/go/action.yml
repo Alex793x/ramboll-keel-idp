@@ -1,0 +1,18 @@
+name: "test · go"
+description: "Run the Go table tests and fuzz seed corpus (seeds execute on a plain go test)."
+inputs:
+  working-directory:
+    description: "Service directory (repo root for single-service repos, services/<dir> in a monolith)."
+    required: false
+    default: "."
+runs:
+  using: composite
+  steps:
+    - name: Set up Go 1.22
+      uses: actions/setup-go@v5
+      with:
+        go-version: "1.22"
+    - name: Test
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: go test ./...
