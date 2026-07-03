@@ -162,6 +162,7 @@ pub(super) fn run(
         blueprint_version: first_plan.manifest.version.clone(),
         catalog_id,
         events: log.into_events(),
+        provenance: Some(keel_core::Provenance::from_request(req)),
     };
     catalog::upsert(catalog_path, &outcome)?;
     Ok(outcome)

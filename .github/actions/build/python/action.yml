@@ -1,0 +1,43 @@
+name: "build · python"
+description: "Install the package and run an import/syntax check, building a dist when packaged."
+inputs:
+  working-directory:
+    description: "Service directory (repo root for single-service repos, services/<dir> in a monolith)."
+    required: false
+    default: "."
+  python-version:
+    description: "Python version to build against."
+    required: false
+    default: "3.12"
+runs:
+  using: composite
+  steps:
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: pip
+    - name: Install package (generic)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f setup.cfg ]; then
+          python -m pip install .
+        else
+          echo "No packaging metadata — skipping install step."
+        fi
+    - name: Compile all sources (import/syntax check)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: python -m compileall -q .
+    - name: Build distribution (if packaging metadata exists)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        if [ -f pyproject.toml ] || [ -f setup.py ]; then
+          python -m pip install build
+          python -m build
+        else
+          echo "No packaging metadata — skipping python -m build."
+        fi

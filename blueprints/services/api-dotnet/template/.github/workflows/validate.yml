@@ -1,7 +1,6 @@
-# Validate — self-contained .NET CI. Both projects already set
-# TreatWarningsAsErrors + Nullable; this gate re-builds with -warnaserror so
-# any analyzer/nullable finding fails the check. The check name `validate` is
-# part of the branch-protection contract.
+# validate — dispatched to the shared, language-aware pipeline. EVERY Keel repo points at the SAME
+# reusable workflow; the 'stack' input selects the right validate composite (SPEC §14). Do NOT
+# inline pipeline logic here. The check name 'validate' is part of the branch-protection contract.
 name: validate
 
 on:
@@ -11,19 +10,6 @@ on:
 
 jobs:
   validate:
-    name: Warning-clean build (analyzers + nullable)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up .NET 8
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "8.0.x"
-
-      - name: Validate API
-        run: dotnet build src/Api/Api.csproj -c Release -warnaserror
-
-      - name: Validate tests
-        run: dotnet build tests/Api.Tests/Api.Tests.csproj -c Release -warnaserror
+    uses: Alex793x/keel/.github/workflows/reusable-validate.yml@main
+    with:
+      stack: dotnet

@@ -1,10 +1,14 @@
-# Smart monolith CI — change-aware selective rebuilds.
+# Smart monolith CI — change-aware selective rebuilds, language-aware per service.
 #
 #   detect   → resolves the git diff to affected services via
 #              .github/scripts/detect_services.py + keel.services.json.
 #   gate     → ALWAYS runs: resolver property tests + manifest sanity.
 #              This is the required check on `main`.
-#   services → matrix over ONLY the affected services, per-language steps.
+#   validate / test / build → one matrix job each over ONLY the affected services,
+#              delegating to the SAME shared, language-aware dispatchers every repo
+#              uses (per-service `stack` = the service's language). No inline
+#              per-language steps: the pipeline logic lives in the Keel composites
+#              under .github/actions/<phase>/<stack>/.
 #
 # Any failure to compute the diff degrades safely to a FULL rebuild
 # (the resolver is a total function — see docs/ci.md).
@@ -79,84 +83,43 @@ jobs:
         run: |
           python -c "import json,pathlib; m=json.load(open('keel.services.json')); dirs=[s['dir'] for s in m['services']]; assert len(dirs)==len(set(dirs)), f'duplicate service dirs: {dirs}'; missing=[d for d in dirs if not pathlib.Path('services',d).is_dir()]; assert not missing, f'manifest dirs missing on disk: {missing}'; print('manifest OK:', ', '.join(dirs))"
 
-  services:
-    name: "${{ matrix.name }} (services/${{ matrix.dir }})"
+  # Each affected service runs the SAME language-aware dispatcher every standalone repo uses,
+  # scoped to its services/<dir>/ tree. stack = the service's language (react → node composite).
+  validate:
+    name: validate
     needs: [detect, gate]
     if: needs.detect.outputs.any == 'true'
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.detect.outputs.services) }}
-    steps:
-      - uses: actions/checkout@v4
+    uses: Alex793x/keel/.github/workflows/reusable-validate.yml@main
+    with:
+      stack: ${{ matrix.lang }}
+      working-directory: services/${{ matrix.dir }}
 
-      # ---------- python ----------
-      - name: Set up Python
-        if: matrix.lang == 'python'
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Python — install
-        if: matrix.lang == 'python'
-        working-directory: services/${{ matrix.dir }}
-        run: pip install -e ".[dev]"
-      - name: Python — test, lint, format, types
-        if: matrix.lang == 'python'
-        working-directory: services/${{ matrix.dir }}
-        run: |
-          pytest -q
-          ruff check .
-          black --check .
-          mypy
+  test:
+    name: test
+    needs: [detect, gate]
+    if: needs.detect.outputs.any == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.detect.outputs.services) }}
+    uses: Alex793x/keel/.github/workflows/reusable-test.yml@main
+    with:
+      stack: ${{ matrix.lang }}
+      working-directory: services/${{ matrix.dir }}
 
-      # ---------- node / react ----------
-      - name: Set up Node
-        if: matrix.lang == 'node' || matrix.lang == 'react'
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Node — install, test, build
-        if: matrix.lang == 'node' || matrix.lang == 'react'
-        working-directory: services/${{ matrix.dir }}
-        run: |
-          npm ci
-          npm test
-          npm run build --if-present
-
-      # ---------- go ----------
-      - name: Set up Go
-        if: matrix.lang == 'go'
-        uses: actions/setup-go@v5
-        with:
-          go-version: "stable"
-      - name: Go — vet, test, build
-        if: matrix.lang == 'go'
-        working-directory: services/${{ matrix.dir }}
-        run: |
-          go vet ./...
-          go test ./...
-          go build ./...
-
-      # ---------- dotnet ----------
-      - name: Set up .NET
-        if: matrix.lang == 'dotnet'
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "8.0.x"
-      - name: dotnet — test
-        if: matrix.lang == 'dotnet'
-        working-directory: services/${{ matrix.dir }}
-        run: dotnet test
-
-      # ---------- terraform ----------
-      - name: Set up Terraform
-        if: matrix.lang == 'terraform'
-        uses: hashicorp/setup-terraform@v3
-      - name: Terraform — fmt, init, validate
-        if: matrix.lang == 'terraform'
-        working-directory: services/${{ matrix.dir }}
-        run: |
-          terraform fmt -check -recursive
-          terraform init -backend=false
-          terraform validate
+  build:
+    name: build
+    needs: [detect, gate]
+    if: needs.detect.outputs.any == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.detect.outputs.services) }}
+    uses: Alex793x/keel/.github/workflows/reusable-build.yml@main
+    with:
+      stack: ${{ matrix.lang }}
+      working-directory: services/${{ matrix.dir }}

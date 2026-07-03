@@ -1,6 +1,6 @@
-# Validate — self-contained Terraform CI: canonical formatting. Run
-# `terraform fmt` locally to fix. The check name `validate` is part of the
-# branch-protection contract.
+# validate — dispatched to the shared, language-aware pipeline. EVERY Keel repo points at the SAME
+# reusable workflow; the 'stack' input selects the right validate composite (SPEC §14). Do NOT
+# inline pipeline logic here. The check name 'validate' is part of the branch-protection contract.
 name: validate
 
 on:
@@ -10,14 +10,6 @@ on:
 
 jobs:
   validate:
-    name: terraform fmt -check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Format check
-        run: terraform fmt -check -recursive -diff
+    uses: Alex793x/keel/.github/workflows/reusable-validate.yml@main
+    with:
+      stack: terraform

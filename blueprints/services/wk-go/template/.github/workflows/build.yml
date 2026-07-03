@@ -1,6 +1,6 @@
-# Build — self-contained Go CI. The platform's reusable workflows are
-# Python-focused; Go services use self-contained lang CI (SPEC §14).
-# The check name `build` is part of the branch-protection contract.
+# build — dispatched to the shared, language-aware pipeline. EVERY Keel repo points at the SAME
+# reusable workflow; the 'stack' input selects the right build composite (SPEC §14). Do NOT
+# inline pipeline logic here. The check name 'build' is part of the branch-protection contract.
 name: build
 
 on:
@@ -10,16 +10,6 @@ on:
 
 jobs:
   build:
-    name: go build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go 1.22
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-
-      - name: Build
-        run: go build ./...
+    uses: Alex793x/keel/.github/workflows/reusable-build.yml@main
+    with:
+      stack: go

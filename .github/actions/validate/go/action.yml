@@ -1,0 +1,28 @@
+name: "validate · go"
+description: "Formatting (gofmt) and static analysis (go vet)."
+inputs:
+  working-directory:
+    description: "Service directory (repo root for single-service repos, services/<dir> in a monolith)."
+    required: false
+    default: "."
+runs:
+  using: composite
+  steps:
+    - name: Set up Go 1.22
+      uses: actions/setup-go@v5
+      with:
+        go-version: "1.22"
+    - name: Format check (gofmt)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        unformatted="$(gofmt -l .)"
+        if [ -n "$unformatted" ]; then
+          echo "::error::gofmt needs to run on:"
+          echo "$unformatted"
+          exit 1
+        fi
+    - name: Vet
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: go vet ./...

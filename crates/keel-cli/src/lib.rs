@@ -29,10 +29,10 @@ use anyhow::{anyhow, Context};
 use clap::{Args, Parser, Subcommand};
 
 use keel_core::{
-    InitOutcome, InitRequest, MockCatalog, ProgressEvent, RepoLayout, RepoProvider, Selection,
-    ServiceSelection,
+    InitOutcome, InitRequest, MockCatalog, ProgressEvent, Provenance, RepoCoordinates, RepoLayout,
+    RepoProvider, Selection, ServiceSelection,
 };
-use keel_engine::Engine;
+use keel_engine::{AddServiceOutcome, AddServiceSpec, Engine};
 
 /// Default GitHub owner for new repos.
 pub const DEFAULT_OWNER: &str = "Alex793x";
@@ -60,6 +60,8 @@ pub struct Cli {
 pub enum Command {
     /// Initialize a new project repository from a blueprint.
     Init(InitArgs),
+    /// Add ONE service component to an already-initialized project (v5, SPEC §19.5).
+    AddService(AddServiceArgs),
 }
 
 /// `keel-cli init` flags.
@@ -138,6 +140,86 @@ pub enum ProviderChoice {
 
 impl InitArgs {
     /// Resolve the provider choice from the flags. `--dry-run` wins over `--local`.
+    #[must_use]
+    pub fn provider_choice(&self) -> ProviderChoice {
+        if self.dry_run {
+            ProviderChoice::Fake
+        } else if let Some(dir) = &self.local {
+            ProviderChoice::Local(dir.clone())
+        } else if self.octocrab {
+            ProviderChoice::Octocrab
+        } else {
+            ProviderChoice::GhCli
+        }
+    }
+}
+
+/// `keel-cli add-service` flags — materialize ONE new component into an existing project.
+///
+/// The department/users/author/description supply the render context (CODEOWNERS, docs) the same
+/// way `init` does — normally the project's original owners. Provider flags mirror `init`.
+#[derive(Debug, Clone, Args)]
+pub struct AddServiceArgs {
+    /// Project slug the component is added to (repo prefix for multi-repo, repo name for monolith).
+    #[arg(long)]
+    pub project: String,
+
+    /// The component to add, as `type:lang` or `type:lang:name` (e.g. `api:python:ingest`).
+    #[arg(long)]
+    pub service: String,
+
+    /// Department id from the mock catalog (e.g. `energy`).
+    #[arg(long)]
+    pub department: String,
+
+    /// Comma-separated owning user ids (e.g. `u-alex,u-bo`).
+    #[arg(long, value_delimiter = ',')]
+    pub users: Vec<String>,
+
+    /// Author (name or "name <email>").
+    #[arg(long)]
+    pub author: String,
+
+    /// One-sentence description carried into the rendered docs.
+    #[arg(
+        long,
+        default_value = "Service component added via keel-cli add-service"
+    )]
+    pub description: String,
+
+    /// Project layout: `multi-repo` (new `{project}-{name}` repo) or `monolith` (commit to `dev`).
+    #[arg(long, default_value = "multi-repo", value_parser = ["multi-repo", "monolith"])]
+    pub layout: String,
+
+    /// Existing component names already in the project (the collision domain), comma-separated.
+    /// Empty ⇒ the added component takes its bare default name.
+    #[arg(long, value_delimiter = ',')]
+    pub existing: Vec<String>,
+
+    /// GitHub owner new repos are created under.
+    #[arg(long, default_value = DEFAULT_OWNER)]
+    pub owner: String,
+
+    /// Blueprints directory.
+    #[arg(long, default_value = DEFAULT_BLUEPRINTS_DIR)]
+    pub blueprints: PathBuf,
+
+    /// Materialize into a local git tree (no `gh`, no network). Multi-repo creates
+    /// `<dir>/{project}-{name}`; monolith commits into the existing `<dir>/{project}` repo.
+    #[arg(long)]
+    pub local: Option<PathBuf>,
+
+    /// Use the in-memory fake provider (no writes, no network).
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Create the repo via the typed octocrab SDK instead of the gh CLI.
+    #[arg(long)]
+    pub octocrab: bool,
+}
+
+impl AddServiceArgs {
+    /// Resolve the provider choice from the flags (same precedence as `init`).
     #[must_use]
     pub fn provider_choice(&self) -> ProviderChoice {
         if self.dry_run {
@@ -288,6 +370,113 @@ pub fn execute_init(args: &InitArgs) -> anyhow::Result<InitOutcome> {
     Ok(outcome)
 }
 
+/// Format a single add-service progress event (4-step: form/render/create_repo|commit/register).
+#[must_use]
+pub fn format_add_event(ev: &ProgressEvent) -> String {
+    let status = match ev.status {
+        keel_core::Status::Started => "…",
+        keel_core::Status::Done => "✓",
+        keel_core::Status::Skipped => "·",
+        keel_core::Status::Error => "✗",
+    };
+    if ev.detail.is_empty() {
+        format!("[{}/4] {} {} — {}", ev.step, status, ev.key, ev.title)
+    } else {
+        format!(
+            "[{}/4] {} {} — {} ({})",
+            ev.step, status, ev.key, ev.title, ev.detail
+        )
+    }
+}
+
+/// Execute the `add-service` subcommand end-to-end (resolve context → materialize → print).
+///
+/// Rebuilds the render-context donor from the given department/owners/author (as `init` does),
+/// parses the single `--service`, and drives [`Engine::add_service`] with the selected provider.
+/// Multi-repo creates a new `{project}-{name}` repo; monolith commits to the project repo's `dev`.
+///
+/// # Errors
+/// Any resolution or engine error (caller maps this to a non-zero exit code).
+pub fn execute_add_service(args: &AddServiceArgs) -> anyhow::Result<AddServiceOutcome> {
+    let catalog = MockCatalog::load();
+    let layout: RepoLayout = args
+        .layout
+        .parse()
+        .map_err(|e: keel_core::KeelError| anyhow!("invalid --layout: {e}"))?;
+
+    // Resolve the render context (department + owners) exactly like `init`; the service set comes
+    // from --service, so the donor's own `services` stays empty.
+    let donor_selection = Selection {
+        project_name: args.project.clone(),
+        blueprint: "multi-service".to_owned(),
+        department_id: args.department.clone(),
+        user_ids: args.users.clone(),
+        service_kind: "rest-api".to_owned(),
+        description: args.description.clone(),
+        author: args.author.clone(),
+        layout,
+        services: Vec::new(),
+    };
+    let resolved = catalog
+        .resolve(&donor_selection)
+        .map_err(|e| anyhow!(e.to_string()))?;
+    // Round-trip through Provenance so the CLI donor is byte-for-byte the API's materialization donor.
+    let donor = Provenance::from_request(&resolved).to_request(&args.project);
+
+    let selection = ServiceSelection::parse(&args.service)
+        .map_err(|e| anyhow!("invalid --service {:?}: {e}", args.service))?;
+
+    let engine = Engine::new(args.blueprints.clone(), args.owner.clone());
+
+    // Monolith commits into the existing project repo; multi-repo creates a fresh one.
+    let base_repo = match layout {
+        RepoLayout::Monolith => Some(RepoCoordinates {
+            owner: args.owner.clone(),
+            name: args.project.clone(),
+            html_url: String::new(),
+            default_branch: "main".to_owned(),
+            branches: vec!["main".to_owned(), "dev".to_owned(), "staging".to_owned()],
+        }),
+        RepoLayout::MultiRepo => None,
+    };
+
+    let spec = AddServiceSpec {
+        project_slug: &args.project,
+        layout,
+        selection: &selection,
+        existing_names: &args.existing,
+        base_repo: base_repo.as_ref(),
+        request: &donor,
+    };
+
+    let mut sink = |ev: &ProgressEvent| eprintln!("{}", format_add_event(ev));
+
+    let outcome = match args.provider_choice() {
+        ProviderChoice::Fake => {
+            let provider = keel_github::FakeProvider::new();
+            engine.add_service(&spec, &provider, &mut sink)
+        }
+        ProviderChoice::Local(dir) => {
+            let provider = keel_github::LocalDirProvider::new(dir);
+            engine.add_service(&spec, &provider, &mut sink)
+        }
+        ProviderChoice::Octocrab => {
+            let provider =
+                keel_github::OctocrabProvider::from_gh().map_err(|e| anyhow!(e.to_string()))?;
+            engine.add_service(&spec, &provider, &mut sink)
+        }
+        ProviderChoice::GhCli => {
+            let provider = keel_github::GhCliProvider::new(args.owner.clone());
+            engine.add_service(&spec, &provider, &mut sink)
+        }
+    }
+    .map_err(|e| anyhow!(e.to_string()))?;
+
+    let json = serde_json::to_string_pretty(&outcome).context("serializing outcome")?;
+    println!("{json}");
+    Ok(outcome)
+}
+
 /// Dispatch a parsed [`Cli`].
 ///
 /// # Errors
@@ -296,6 +485,10 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
         Command::Init(args) => {
             execute_init(&args)?;
+            Ok(())
+        }
+        Command::AddService(args) => {
+            execute_add_service(&args)?;
             Ok(())
         }
     }
@@ -316,7 +509,72 @@ mod tests {
     fn init_args(argv: &[&str]) -> InitArgs {
         match parse(argv).command {
             Command::Init(a) => a,
+            Command::AddService(_) => panic!("expected an init command"),
         }
+    }
+
+    fn add_service_args(argv: &[&str]) -> AddServiceArgs {
+        match parse(argv).command {
+            Command::AddService(a) => a,
+            Command::Init(_) => panic!("expected an add-service command"),
+        }
+    }
+
+    #[test]
+    fn add_service_parses_service_provider_and_existing_flags() {
+        let args = add_service_args(&[
+            "keel-cli",
+            "add-service",
+            "--project",
+            "demo",
+            "--service",
+            "api:python:ingest",
+            "--department",
+            "energy",
+            "--users",
+            "u-alex,u-bo",
+            "--author",
+            "Alex",
+            "--local",
+            "/tmp/out",
+            "--existing",
+            "api,fe",
+        ]);
+        assert_eq!(args.project, "demo");
+        assert_eq!(args.users, vec!["u-alex", "u-bo"]);
+        assert_eq!(args.existing, vec!["api", "fe"]);
+        assert_eq!(args.layout, "multi-repo", "layout defaults to multi-repo");
+        assert_eq!(
+            args.provider_choice(),
+            ProviderChoice::Local(PathBuf::from("/tmp/out"))
+        );
+        // The `type:lang:name` form carries the explicit component name through.
+        let sel = ServiceSelection::parse(&args.service).expect("valid service");
+        assert_eq!(sel.name.as_deref(), Some("ingest"));
+    }
+
+    #[test]
+    fn add_service_existing_defaults_to_empty() {
+        let args = add_service_args(&[
+            "keel-cli",
+            "add-service",
+            "--project",
+            "demo",
+            "--service",
+            "fe:react",
+            "--department",
+            "energy",
+            "--users",
+            "u-alex",
+            "--author",
+            "Alex",
+            "--dry-run",
+        ]);
+        assert!(
+            args.existing.is_empty(),
+            "no --existing ⇒ empty collision domain"
+        );
+        assert_eq!(args.provider_choice(), ProviderChoice::Fake);
     }
 
     #[test]

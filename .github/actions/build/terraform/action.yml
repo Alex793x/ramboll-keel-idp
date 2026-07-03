@@ -1,0 +1,16 @@
+name: "build · terraform"
+description: "Resolve providers without a state backend (the Terraform analogue of a build)."
+inputs:
+  working-directory:
+    description: "Service directory (repo root for single-service repos, services/<dir> in a monolith)."
+    required: false
+    default: "."
+runs:
+  using: composite
+  steps:
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v3
+    - name: Init (no backend)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: terraform init -backend=false -input=false

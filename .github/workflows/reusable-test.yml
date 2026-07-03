@@ -1,46 +1,75 @@
 name: reusable-test
 
-# Central, reusable TEST workflow for the Ramboll Developer Platform (Keel).
-# Every generated repo's `test.yml` calls this by path (contract: SPEC §6):
+# Central, language-aware TEST dispatcher for the Ramboll Developer Platform (Keel).
+# EVERY generated repo's `test.yml` calls this by path (contract: SPEC §6/§14):
 #   uses: Alex793x/keel/.github/workflows/reusable-test.yml@main
-# Runs the seeded smoke + Hypothesis property tests (the "green from birth" bar).
+#   with: { stack: <python|dotnet|node|react|go|terraform> }
+# The `stack` input selects the matching composite under `.github/actions/test/<stack>/`.
 #
-# Self-contained: setup is inlined (a remote caller does not ship our composite
-# action). Filename + the `python-version` input are the frozen contract.
+# Back-compat: `python-version` accepted; `stack` defaults to `python`.
 
 on:
   workflow_call:
     inputs:
+      stack:
+        description: "CI stack: python | dotnet | node | react | go | terraform."
+        required: false
+        type: string
+        default: "python"
+      working-directory:
+        description: "Directory to test in (repo root for single-service repos; services/<dir> in a monolith)."
+        required: false
+        type: string
+        default: "."
       python-version:
-        description: "Python version to test against."
+        description: "Python version (python stack only)."
         required: false
         type: string
         default: "3.12"
 
 jobs:
   test:
-    name: Pytest (smoke + property)
+    name: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ inputs.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ inputs.python-version }}
-          cache: "pip"
-
-      - name: Install package + test toolchain
+      - name: Validate stack
         shell: bash
         run: |
-          python -m pip install --upgrade pip
-          if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f setup.cfg ]; then
-            python -m pip install ".[dev]" || python -m pip install .
-          fi
-          # Ensure the runners are present even if the project omits a dev extra.
-          python -m pip install pytest hypothesis
+          case "${{ inputs.stack }}" in
+            python|dotnet|node|react|go|terraform) echo "stack=${{ inputs.stack }}" ;;
+            *) echo "::error::unknown stack '${{ inputs.stack }}' (expected python|dotnet|node|react|go|terraform)"; exit 1 ;;
+          esac
 
-      - name: Run tests
-        shell: bash
-        run: pytest -q
+      - name: Test (python)
+        if: ${{ inputs.stack == 'python' }}
+        uses: Alex793x/keel/.github/actions/test/python@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          python-version: ${{ inputs.python-version }}
+
+      - name: Test (dotnet)
+        if: ${{ inputs.stack == 'dotnet' }}
+        uses: Alex793x/keel/.github/actions/test/dotnet@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Test (node)
+        if: ${{ inputs.stack == 'node' || inputs.stack == 'react' }}
+        uses: Alex793x/keel/.github/actions/test/node@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Test (go)
+        if: ${{ inputs.stack == 'go' }}
+        uses: Alex793x/keel/.github/actions/test/go@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Test (terraform)
+        if: ${{ inputs.stack == 'terraform' }}
+        uses: Alex793x/keel/.github/actions/test/terraform@main
+        with:
+          working-directory: ${{ inputs.working-directory }}

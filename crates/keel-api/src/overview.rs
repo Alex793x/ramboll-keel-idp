@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use keel_core::{
-    InitOutcome, KeelError, Person, ProgressEvent, RepoCoordinates, ServiceSelection, ServiceType,
-    Status,
+    InitOutcome, InitRequest, KeelError, Person, ProgressEvent, Provenance, RepoCoordinates,
+    RepoLayout, ServiceSelection, ServiceType, Status,
 };
 
 use crate::state::AppState;
@@ -1084,9 +1084,32 @@ pub(crate) async fn add_project_service(
         Err(e) => return crate::routes::error_response(&e),
     };
 
-    // 5. Record to the overlay and respond; the chip appears on the next overview fetch.
+    // 5. Real projects that carry provenance materialize for real — a new `{project}-{name}` repo
+    //    (multi-repo) or one commit to `dev` (monolith). Seeded demos and any pre-v5.1 row without
+    //    provenance record to the overlay only. Either way the addition lands in the overlay so the
+    //    chip appears on the next overview fetch (SPEC §19.4).
+    let real = row
+        .filter(|_| !is_seeded(&id))
+        .and_then(|r| r.provenance.clone().map(|p| (r.clone(), p)));
+
+    let materialized = match real {
+        Some((row, prov)) => {
+            match run_materialization(&state, &row, &prov, &selection, existing).await {
+                Ok(m) => m,
+                Err(e) => return crate::routes::error_response(&e),
+            }
+        }
+        None => Materialized {
+            name,
+            repo: None,
+            materialized: false,
+            events: catalog_only_events(&selection, is_seeded(&id)),
+        },
+    };
+
+    // Record to the overlay (both paths), then respond.
     let service = ServiceDto {
-        dir: name.clone(),
+        dir: materialized.name.clone(),
         service_type: selection.service_type.tag().to_owned(),
         lang: selection.language.clone(),
         name: selection.service_type.label().to_owned(),
@@ -1094,32 +1117,99 @@ pub(crate) async fn add_project_service(
     if let Err(e) = state.additions.append(&id, service.clone()) {
         return crate::routes::error_response(&e);
     }
-    let note = if is_seeded(&id) {
+    Json(AddServiceResponseDto {
+        service,
+        repo: materialized.repo,
+        materialized: materialized.materialized,
+        events: materialized.events,
+    })
+    .into_response()
+}
+
+/// The outcome of step 5: the resolved component `name`, the created repo (materialized multi-repo
+/// only), whether anything was actually pushed/created, and the progress events to surface.
+struct Materialized {
+    name: String,
+    repo: Option<RepoDto>,
+    materialized: bool,
+    events: Vec<ProgressEvent>,
+}
+
+/// The two-event trail for a catalog-only addition (nothing pushed/created).
+fn catalog_only_events(selection: &ServiceSelection, seeded: bool) -> Vec<ProgressEvent> {
+    let note = if seeded {
         "recorded to catalog overlay (demo project)"
     } else {
         "recorded to catalog overlay"
     };
-    let events = vec![
+    vec![
         ProgressEvent::new(
             1,
             "form",
             "Validate service",
             Status::Done,
             format!(
-                "resolved {}:{} as service {name:?}",
+                "resolved {}:{}",
                 selection.service_type.tag(),
                 selection.language
             ),
         ),
         ProgressEvent::new(4, "register", "Register service", Status::Done, note),
-    ];
-    Json(AddServiceResponseDto {
-        service,
-        repo: None,
-        materialized: false,
-        events,
+    ]
+}
+
+/// Drive [`keel_engine::Engine::add_service`] for a real project, off the async runtime (the engine
+/// is blocking + shells out to `gh`, like `initialize`). Rebuilds the render-context donor from the
+/// project's persisted [`Provenance`]; multi-repo creates a new repo, monolith commits to `dev`.
+async fn run_materialization(
+    state: &AppState,
+    row: &InitOutcome,
+    prov: &Provenance,
+    selection: &ServiceSelection,
+    existing: Vec<String>,
+) -> keel_core::Result<Materialized> {
+    let owner = state.owner.clone();
+    let engine = state.engine.clone();
+    let project = row.project.clone();
+    let layout = prov.layout;
+    let donor: InitRequest = prov.to_request(&project);
+    // Monolith commits into the project's single repo; multi-repo creates a fresh one.
+    let base_repo: Option<RepoCoordinates> = match layout {
+        RepoLayout::Monolith => Some(row.repo.clone()),
+        RepoLayout::MultiRepo => None,
+    };
+    let selection = selection.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        let provider = keel_github::GhCliProvider::new(owner);
+        let spec = keel_engine::AddServiceSpec {
+            project_slug: &project,
+            layout,
+            selection: &selection,
+            existing_names: &existing,
+            base_repo: base_repo.as_ref(),
+            request: &donor,
+        };
+        let mut events = Vec::new();
+        let outcome = engine.add_service(&spec, &provider, &mut |e| events.push(e.clone()))?;
+        Ok::<_, KeelError>((outcome, events))
     })
-    .into_response()
+    .await;
+
+    match result {
+        Ok(Ok((outcome, events))) => Ok(Materialized {
+            name: outcome.name,
+            repo: outcome.repo.map(|r| RepoDto {
+                name: r.name,
+                html_url: r.html_url,
+                default_branch: r.default_branch,
+            }),
+            materialized: true,
+            events,
+        }),
+        Ok(Err(e)) => Err(e),
+        Err(join) => Err(KeelError::Io(format!("add-service task panicked: {join}"))),
+    }
 }
 
 /// Parse + validate an [`AddServiceBody`] into a [`ServiceSelection`] (400 on bad type/lang/name).
@@ -1225,6 +1315,7 @@ mod tests {
             blueprint_version: "0.9.9".to_owned(),
             catalog_id: format!("cat-{slug}"),
             events: vec![],
+            provenance: None,
         }
     }
 

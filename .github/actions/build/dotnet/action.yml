@@ -1,0 +1,18 @@
+name: "build · dotnet"
+description: "Build the .NET API in Release configuration."
+inputs:
+  working-directory:
+    description: "Service directory (repo root for single-service repos, services/<dir> in a monolith)."
+    required: false
+    default: "."
+runs:
+  using: composite
+  steps:
+    - name: Set up .NET 8
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: "8.0.x"
+    - name: Build API
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: dotnet build src/Api/Api.csproj -c Release

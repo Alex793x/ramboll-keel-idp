@@ -1,0 +1,50 @@
+name: "validate · python"
+description: "Lint (ruff), format check (black), type check (mypy), and strict docs build."
+inputs:
+  working-directory:
+    description: "Service directory (repo root for single-service repos, services/<dir> in a monolith)."
+    required: false
+    default: "."
+  python-version:
+    description: "Python version to validate against."
+    required: false
+    default: "3.12"
+runs:
+  using: composite
+  steps:
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: pip
+    - name: Install package + lint toolchain
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f setup.cfg ]; then
+          python -m pip install ".[dev]" || python -m pip install .
+        fi
+        python -m pip install ruff black mypy
+    - name: Lint (ruff)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: ruff check .
+    - name: Format check (black)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: black --check .
+    - name: Type check (mypy)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: mypy .
+    - name: Docs build (mkdocs --strict, if configured)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        if [ -f mkdocs.yml ]; then
+          python -m pip install mkdocs mkdocs-material
+          mkdocs build --strict
+        else
+          echo "No mkdocs.yml — skipping docs build."
+        fi

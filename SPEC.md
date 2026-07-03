@@ -377,12 +377,29 @@ for service renders `service: {tag, dir, lang, label, repo_name}`; for the root 
 
 8 blueprints: `fe-react`, `api-python`, `api-node`, `api-dotnet`, `wk-python`, `wk-go`, `dp-python`,
 `inf-terraform`. Each: keel/v2 manifest (+ `service: {type, language}` metadata), template with a
-small WORKING module + smoke/property tests, README, and (for standalone/multi-repo use) its own
-`.github/workflows/{build,test,validate}.yml` where the toolchain fits the reusable workflows
-(python) or self-contained lang CI otherwise. **Local green-from-birth bar** applies to
+small WORKING module + smoke/property tests, README, and its own
+`.github/workflows/{build,test,validate}.yml`. **Local green-from-birth bar** applies to
 fe-react, api-node (node ✓) and api-python, wk-python, dp-python (uv ✓); dotnet/go/terraform are
 authored complete + validated in CI (toolchains absent locally — documented). The 6 remaining combos
 (vue, blazor, wk-dotnet, dp-dbt, dp-spark, inf-bicep) stay unavailable ⇒ hub shows them dimmed/SOON.
+
+### 14.1 Dynamic, language-aware CI dispatch (v5.1)
+
+Every generated repo — regardless of language — references the **same** three reusable
+dispatchers; a single `stack` input selects the pipeline. No inlined per-language pipelines, no
+Python-only central workflows.
+
+- `.github/workflows/reusable-{build,test,validate}.yml` — dispatchers keyed on
+  `stack ∈ {python, dotnet, node, react, go, terraform}` (`react`→`node`; `stack` defaults to
+  `python` and `python-version` is still accepted, so pre-v5.1 repos keep working). `uses:` can't be
+  interpolated and reusable workflows can't be sub-foldered, so each dispatcher is a short
+  declarative routing table of `if: inputs.stack == …` steps → the matching composite.
+- `.github/actions/{build,test,validate}/<stack>/action.yml` — the real per-language logic, one
+  composite per phase×stack, each taking `working-directory` (default `.`). Readable folders split
+  by phase then stack; `validate/governance/` is the shared branch-name policy run for every stack.
+- Each service blueprint's three workflows collapse to a uniform caller:
+  `uses: …/reusable-build.yml@main` `with: { stack: <lang> }`. The check names `build`/`test`/
+  `validate` remain the branch-protection contract.
 
 ## 15. Smart monolith CI (`blueprints/monolith-root/`) — the novelty bar
 
@@ -394,10 +411,12 @@ authored complete + validated in CI (toolchains absent locally — documented). 
   shared⇒all, isolation (only svc-X paths ⇒ closure(X)), closure idempotence+transitivity,
   determinism, total fallback. The generated monolith tests its OWN pipeline logic — green from birth.
 - `.github/workflows/ci.yml`: `detect` (fetch-depth 0; PR base sha / push `before`; fallback ALL) →
-  `gate` (always: root pytest incl. resolver properties + manifest validation) → `services` matrix
-  `fromJSON(detect.outputs.services)`, per-lang steps (`working-directory: services/${{ matrix.dir }}`):
-  python ⇒ pip+pytest+ruff+black+mypy · node ⇒ npm ci+test+build · go ⇒ vet+test+build ·
-  dotnet ⇒ restore+test · terraform ⇒ fmt-check+validate. No affected services ⇒ matrix job skips.
+  `gate` (always: root pytest incl. resolver properties + manifest validation) → `validate`/`test`/
+  `build` — one matrix job per phase over `fromJSON(detect.outputs.services)`, each **delegating to
+  the same shared dispatcher** every standalone repo uses (`stack: ${{ matrix.lang }}`,
+  `working-directory: services/${{ matrix.dir }}`). No inline per-language steps: the pipeline logic
+  lives once in the `.github/actions/<phase>/<stack>/` composites (§14.1). No affected services ⇒
+  the phase jobs skip.
 - Root also ships README (service index), CODEOWNERS (dept+users), `.claude/skills/` (once),
   root `pyproject.toml` (pytest+hypothesis for the gate), docs.
 
@@ -602,14 +621,16 @@ Body `{ "type": "api", "lang": "python", "name": "ingest"? }` →
   sibling of the engine catalog under `.keel/`) and the overview handler **merges the overlay**
   into `project.services`, so additions survive restarts and appear on the dashboard. Collision
   checks run against the merged (generated + overlay) service set.
-- `materialized: false` in the MVP: API-driven materialization needs the original init-context
-  (department/users/author/description) that the catalog does **not** persist, so the endpoint
-  records intent only (the hub labels it "catalog-only"). Every project reachable in the running
-  app is a seeded design project (RMB-*), which has no repo to push to anyway.
-- **Real materialization** — a new `{project}-{name}` repo (multi-repo) or one commit to `dev`
-  (monolith) — is `Engine::add_service` (§19.3), proven by the engine's integration tests and
-  driven from a context-carrying caller (CLI/programmatic). Persisting the init-context so the API
-  can set `materialized: true` for real projects is a documented follow-up.
+- **Real catalog projects materialize for real** (`materialized: true`): `init` now persists the
+  render context (`InitOutcome.provenance` = department/owners/author/layout, additive), so the
+  endpoint rebuilds a donor `InitRequest` and drives `Engine::add_service` (§19.3) via `gh` —
+  multi-repo creates a new `{project}-{name}` repo, monolith commits to `dev`. The created repo is
+  returned and also recorded to the overlay so the chip shows immediately.
+- **Seeded design projects (RMB-*)** and any pre-v5.1 row without provenance stay catalog-only
+  (`materialized: false`, hub labels it "catalog-only") — a seeded demo has no repo to push to.
+- **CLI**: `keel-cli add-service --project <slug> --service type:lang[:name] --department … --users …
+  --author … [--layout …] [--existing …] [--local|--dry-run|--octocrab]` drives the same engine path
+  (hermetic via `--local`), the primary materialization E2E.
 
 ### 19.5 Hub
 
